@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="Classes\**" />
+    <EmbeddedResource Remove="Classes\**" />
+    <None Remove="Classes\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="Classes\AVI2_RawDataClass.cs" />
+    <Compile Include="Classes\eDocGenEngine\eDocAlertClass.cs" />
+    <Compile Include="Classes\eDocGenEngine\eDocBincodeMapClass.cs" />
+    <Compile Include="Classes\eDocGenEngine\eDocConfigClass.cs" />
+    <Compile Include="Classes\eDocGenEngine\eDocGenParaClass.cs" />
+    <Compile Include="Classes\eDocGenEngine\eDocGradePathClass.cs" />
+    <Compile Include="Classes\eDocGenEngine\eDocInfoClass.cs" />
+    <Compile Include="Classes\eDocGenEngine\eDocGradingResultClass.cs" />
+    <Compile Include="Classes\eDocGenEngine\eDocMCOSpecClass.cs" />
+    <Compile Include="Classes\eDocGenEngine\eDocRWMapClass.cs" />
+    <Compile Include="Classes\eDocGenEngine\eDocSpecParameterClass.cs" />
+    <Compile Include="Classes\eDocGenEngine\TBL_WAFER_RESUME.cs" />
+    <Compile Include="Classes\eDocGenEngine\eDocTMapMergeClass.cs" />
+    <Compile Include="Classes\eDocGenEngine\eDocWaferTestHeaderClass.cs" />
+    <Compile Include="Classes\eDocGenEngine\eMapTemplateClass.cs" />
+    <Compile Include="Classes\eDocGenEngine\TBL_WAFER_RESUME_ITEM.cs" />
+    <Compile Include="Classes\GradingSpecClass.cs" />
+    <Compile Include="Classes\RWDimensionClass.cs" />
+    <Compile Include="Classes\Traceability_InfoClass.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Dapper" Version="2.0.123" />
+    <PackageReference Include="EPPlus" Version="6.0.3" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="4.1.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="6.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="6.0.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
+    <PackageReference Include="NHibernate" Version="5.3.11" />
+    <PackageReference Include="NLog" Version="4.7.12" />
+    <PackageReference Include="System.Data.OleDb" Version="6.0.0" />
+    <PackageReference Include="System.Data.SqlClient" Version="4.8.3" />
+  </ItemGroup>
+
+</Project>

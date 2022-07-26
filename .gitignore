@@ -48,3 +48,14 @@ Thumbs.db
 *.mov
 *.wmv
 
+/.vs/eDocGeneratorProject
+/DataIngestionEngine/bin
+/DataIngestionEngine/obj
+/eDocGenAPI/bin
+/eDocGenAPI/obj
+/eDocGenEngine/bin
+/eDocGenEngine/obj
+/eDocGenLib/bin
+/eDocGenLib/obj
+/eDocGenUI/bin
+/eDocGenUI/obj

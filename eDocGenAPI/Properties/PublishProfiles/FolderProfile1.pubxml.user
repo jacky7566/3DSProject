@@ -1,0 +1,10 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!--
+https://go.microsoft.com/fwlink/?LinkID=208121. 
+-->
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <_PublishTargetUrl>\\TDSGDS01\Shared\Programs\eDocAPI_Dev</_PublishTargetUrl>
+    <History>True|2022-07-22T06:37:37.7226187Z;</History>
+  </PropertyGroup>
+</Project>
