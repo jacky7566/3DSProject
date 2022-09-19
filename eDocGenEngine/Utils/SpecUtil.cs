@@ -24,7 +24,7 @@ namespace eDocGenEngine.Utils
         public static List<eDocMCOSpecClass> _eDocMCOSpecList;
         public eMapTemplateClass _eMapTemplateInfo;
         public static string _EMapTemplate;
-        public static string _SpecFilePath;
+        private static string _SpecFilePath;
 
         public SpecUtil(IConfiguration config, ILogger logger)
         {
@@ -37,7 +37,9 @@ namespace eDocGenEngine.Utils
             _Mask = maskIDPrefix;
             try
             {
+                
                 _SpecFilePath = GetSpecFilePath(maskIDPrefix);
+                eDocGenUtil._EDocGlobVar.GradingSpecFilePath = _SpecFilePath;
                 //_SpecFilePath = @"C:\SourceControl\Bitbucket\eDoc\eDocTestData\S_Drive\3DS_Document\eDocSpec\WD092\WD092_V2.12.xlsx";
                 _logger.Info("Start to process eDoc spec: " + _SpecFilePath);
                 if (File.Exists(_SpecFilePath))

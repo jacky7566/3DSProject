@@ -15,6 +15,7 @@ namespace eDocGenEngine
         static IConfiguration _config;
         static ILogger _logger;
         static string _retryLimitCount;
+        public static bool _isDebug;
 
         static void Main(string[] args)
         {
@@ -46,10 +47,10 @@ namespace eDocGenEngine
                         {
                             _logger.Warn(eDocGenUtil._EDocGlobVar.MailInfo.Content);
                             //Send Alert Mail
-                            //eDocGenUtil.SendAlertMail(obj);
+                            eDocGenUtil.SendAlertMail(item);
                             eMapStatus = "Fail";
                         }
-                        eDocGenUtil.CreateEMapLog(eMapStatus, eDocGenUtil._EDocGlobVar.MailInfo.Subject);
+                        eDocGenUtil.CreateEMapLog(eMapStatus, eDocGenUtil._EDocGlobVar.MailInfo.Subject);                        
                         eDocGenUtil.SendEDocAPI(eMapStatus, eDocGenUtil._EDocGlobVar.MailInfo.Subject);
                         eDocGenUtil.UpdateTraceabilityInfo(eMapStatus, item, _retryLimitCount);
                     }
@@ -80,6 +81,9 @@ namespace eDocGenEngine
 
                 _config = config;
                 _connHelper = new ConnectionHelper(config);
+
+                _isDebug = false;
+                bool.TryParse(_config["Configurations:IsDebug"].ToString(), out _isDebug);
             }
             catch (Exception)
             {

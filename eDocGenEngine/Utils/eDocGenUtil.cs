@@ -83,6 +83,7 @@ namespace eDocGenEngine.Utils
             _EDocGlobVar.MailInfo.Content = string.Empty;
             _EDocGlobVar.MailInfo.Subject = string.Empty;
             _EDocGlobVar.MailInfo.Level = 0;
+            _EDocGlobVar.WaferTestHeader = new eDocWaferTestHeaderClass();
             _OutputFileDic = new Dictionary<string, string>();
         }
         #endregion
@@ -118,8 +119,6 @@ namespace eDocGenEngine.Utils
                 var gradePathList = QueryGradingPath();
                 if (gradePathList == null || gradePathList.Count() == 0)
                 {
-                    _EDocGlobVar.MailInfo.Content = string.Format("Wafer_Id: {0} grading summary not found!", header.Wafer_Id);
-                    _EDocGlobVar.MailInfo.Level = 1;
                     return false;
                 }
 
@@ -246,12 +245,25 @@ namespace eDocGenEngine.Utils
                     var gradeSumList = connectionHelper.QueryDataBySQL(sql);
                     if (gradeSumList.Count > 0)
                     {
-                        return gradeSumList.Select(x => x as IDictionary<string, object>).ToList()
+                        var res = gradeSumList.Select(x => x as IDictionary<string, object>).ToList()
                             .Select(r => new eDocGradePathClass
                             {
                                 Wafer_ID = r["Wafer_Id"].ToString(),
                                 GradeSumPath = r["Target_path"].ToString()
                             }).ToList();
+
+                        foreach (var item in res)
+                        {
+                            if (File.Exists(item.GradeSumPath) == false)
+                            {
+                                _EDocGlobVar.MailInfo.Subject = string.Format("Wafer_Id: {0} grading summary not found!", _EDocGlobVar.HeaderInfo.Wafer_Id);
+                                _EDocGlobVar.MailInfo.Content = string.Format("Wafer_Id: {0} grading summary not found! File path: {1}"
+                                    , _EDocGlobVar.HeaderInfo.Wafer_Id, item.GradeSumPath);
+                                _EDocGlobVar.MailInfo.Level = 1;
+                                return null;
+                            }
+                        }
+                        return res;
                     }
                 }
             }
@@ -548,6 +560,15 @@ namespace eDocGenEngine.Utils
 
                 foreach (var gp in gradePathList.Distinct())
                 {
+                    if (File.Exists(gp.GradeSumPath) == false)
+                    {
+                        _EDocGlobVar.MailInfo.Subject = "Error while import Grading result file. Wafer Id: "
+                            + string.Join(",", gradePathList.Select(r => r.Wafer_ID).ToList());
+                        _EDocGlobVar.MailInfo.Content = String.Format("Error while import Grading result file: {0}",
+                            gradePathList.Select(r => r.GradeSumPath).ToList());
+                        _EDocGlobVar.MailInfo.Level = 1;
+                        break;
+                    }
                     var tmpFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, gp.Wafer_ID);
                     if (Directory.Exists(tmpFolder) == false)
                         Directory.CreateDirectory(tmpFolder);
@@ -621,14 +642,21 @@ namespace eDocGenEngine.Utils
                             errorMsgSB.AppendFormat("There are {0} die(s) with conflict between pre-aoi and AVI2 bincode as below:", conflictList.Count());
                             errorMsgSB.AppendLine();
                             errorMsgSB.AppendLine("No.;InputWafer;IGx;IGy;PNP Bin;Bin AOI1;Ogx;Ogy;Bin AOI2;GradingResult Bin;GradingResult Desc");
+                            errorMsgSB.AppendLine();
                             for (int i = 0; i <= conflictList.Count() - 1; i++)
                             {
                                 errorMsg = string.Format("{0};{1};{2}", conflictList[i].Line_Data, conflictList[i].AOIBIN, conflictList[i].PARETO_CODE);
                                 errorMsgSB.AppendLine(errorMsg);
-                                _logger.Error(errorMsg);
-                                if (i > 500) break;
+                                errorMsgSB.AppendLine();
+                                //_logger.Error(errorMsg);
+                                if (i > 500)
+                                {
+                                    errorMsgSB.AppendLine("...");
+                                    break;
+                                }
+                                    
                             }
-                            _EDocGlobVar.MailInfo.Subject = string.Format("AOI2 BinCode conflict with Grading result");
+                            _EDocGlobVar.MailInfo.Subject = string.Format("AOI2 BinCode conflict with Grading result({0})", _EDocGlobVar.HeaderInfo.RW_Wafer_Id);
                             _EDocGlobVar.MailInfo.Content = errorMsgSB.ToString();
                             _EDocGlobVar.MailInfo.Level = 2;
 
@@ -659,7 +687,7 @@ namespace eDocGenEngine.Utils
                 _logger.Info("Check Grading Result In Spec...");
                 //Get Columns from Spec
                 var tMapSpecList = SpecUtil._eDocSpecList.Where(r => r.Type == "TMAP" && r.IsValidate == "Y");
-                var goodDieBins = GetGoodDieBinCode(waferId.Substring(0, 12)).Select(r => r.EMap_BinCode);
+                var goodDieBins = GetGoodDieBinCode(waferId.Substring(0, 12)).Select(r => r.AOI_BinCode);
                 var waferGxGyList = _EDocGlobVar.RWMapList.Where(r => r.IGx != "X" && r.IGy != "X" && goodDieBins.Contains(r.Bin_AOI2))
                     .Select(r => r.IGx + "_" + r.IGy).Distinct().ToList();
                 List<List<Dictionary<string, string>>> oosList = new List<List<Dictionary<string, string>>>();
@@ -694,8 +722,8 @@ namespace eDocGenEngine.Utils
                         if (oosList.FirstOrDefault().Count() > 0)
                         {
                             //var oosItem = oosList.FirstOrDefault();
-                            _EDocGlobVar.MailInfo.Subject = string.Format("Spec tightened fail, {0} (LSL={1},USL={2})",
-                                tMapSpec.Display_Paramenter_Name, tMapSpec.LSL, tMapSpec.USL);
+                            _EDocGlobVar.MailInfo.Subject = string.Format("Spec tightened fail, {0} (LSL={1},USL={2}) ({3})",
+                                tMapSpec.Display_Paramenter_Name, tMapSpec.LSL, tMapSpec.USL, _EDocGlobVar.HeaderInfo.RW_Wafer_Id);
                             _EDocGlobVar.MailInfo.Content = ReviseOOSFileAndReturnMsg(oosList, tMapSpec, waferId);
                             _EDocGlobVar.MailInfo.Level = 2;
                             break;
@@ -718,8 +746,9 @@ namespace eDocGenEngine.Utils
             try
             {
                 var oosPath = _EDocGlobVar.EDocConfigList.Where(r => r.ConfigType == "Output" && r.ConfigKey == "OOS").FirstOrDefault();
-                if (Directory.Exists(oosPath.ConfigValue) == false) 
-                    Directory.CreateDirectory(oosPath.ConfigValue);
+                var oosMaskPath = Path.Combine(oosPath.ConfigValue, waferId.Substring(0, 5));
+                if (Directory.Exists(oosMaskPath) == false) 
+                    Directory.CreateDirectory(oosMaskPath);
 
                 var newFileName = string.Format(@"{0}\{1}\{2}_AUTORMP_{3}.txt",
                     oosPath.ConfigValue, waferId.Substring(0, 5), System.IO.Path.GetFileNameWithoutExtension(_EDocGlobVar.AVI2FilePath),
@@ -747,6 +776,7 @@ namespace eDocGenEngine.Utils
                                 values[n - 1] = tMapSpecItem.Bin_Code;
                                 lines[i] = string.Join(";", values);
                                 sb.AppendFormat("{0}({1}) bincode changed to {2}", lines[i], tMapSpecItem.Test_Parameter_Name, tMapSpecItem.Bin_Code);
+                                sb.AppendLine();
                             }
                         }
                     }
@@ -839,7 +869,9 @@ namespace eDocGenEngine.Utils
 
                 //Get Total Row and Col
                 int max_xx = SpecUtil._eDocInfoList.Where(r => r.Type == "EMAP" && r.Key == "EMAP Total Row").FirstOrDefault().Value1.TryGetInt().Value;
+                _logger.Info("EMAP Total Row: " + max_xx);
                 int max_yy = SpecUtil._eDocInfoList.Where(r => r.Type == "EMAP" && r.Key == "EMAP Total Col").FirstOrDefault().Value1.TryGetInt().Value;
+                _logger.Info("EMAP Total Col: " + max_yy);
 
                 //Null Area
                 binCodeMap.Add(new eDocBincodeMapClass()
@@ -1049,6 +1081,8 @@ namespace eDocGenEngine.Utils
             try
             {
                 var conflictPath = _EDocGlobVar.EDocConfigList.Where(r => r.ConfigType == "Output" && r.ConfigKey == "BinCodeConfilct").FirstOrDefault();
+                if (Directory.Exists(conflictPath.ConfigValue) == false)
+                    Directory.CreateDirectory(conflictPath.ConfigValue);
                 var newFileName = string.Format(@"{0}\{1}_autoremap_{2}.txt",
                     conflictPath.ConfigValue, System.IO.Path.GetFileNameWithoutExtension(_EDocGlobVar.AVI2FilePath), DateTime.Now.ToString("yyyyMMdd_HHmmss"));
                 var lines = System.IO.File.ReadAllLines(_EDocGlobVar.AVI2FilePath);
@@ -1087,6 +1121,8 @@ namespace eDocGenEngine.Utils
                     if (File.Exists(newFileName))
                         File.Delete(newFileName);
                     File.WriteAllText(newFileName, newLineSB.ToString(), Encoding.ASCII);
+                    _EDocGlobVar.MailInfo.Attachments = new List<string>();
+                    _EDocGlobVar.MailInfo.Attachments.Add(newFileName);
                 }
             }
             catch (Exception)
@@ -1192,15 +1228,18 @@ namespace eDocGenEngine.Utils
             StringBuilder sb = new StringBuilder();
             try
             {
-                waferList = _EDocGlobVar.RWMapList.Where(r => r.Wafer_Id != null && r.Wafer_Id != "Fiducial")
-                    .Select(r => r.Wafer_Id).Distinct().ToList();
-                foreach (var item in waferList)
+                if (_EDocGlobVar.RWMapList != null)
                 {
-                    sb.Append(item).Append(",");
-                }
-                for (int i = 0; i < 5 - waferList.Count; i++)
-                {
-                    sb.Append(",");
+                    waferList = _EDocGlobVar.RWMapList.Where(r => r.Wafer_Id != null && r.Wafer_Id != "Fiducial")
+                        .Select(r => r.Wafer_Id).Distinct().ToList();
+                    foreach (var item in waferList)
+                    {
+                        sb.Append(item).Append(",");
+                    }
+                    for (int i = 0; i < 5 - waferList.Count; i++)
+                    {
+                        sb.Append(",");
+                    }
                 }
             }
             catch (Exception)
@@ -1565,10 +1604,11 @@ namespace eDocGenEngine.Utils
                     }
                     if (string.IsNullOrEmpty(testValue))
                     {
-                        _logger.Info("Default Value Test Parameter Name: " + colName);
-                        var specItem = tMapParaList.Where(r=> r.Test_Parameter_Name == colName).FirstOrDefault();
-                        if (specItem != null)
-                            testValue = specItem.Default_Value;
+                        var specItem = tMapParaList.Where(r=> r.Test_Parameter_Name.ToUpper() == colName);
+                        if (specItem.Any())
+                        {
+                            testValue = specItem.FirstOrDefault().Default_Value;
+                        }                            
                     }
                     sb.AppendFormat("{0},", testValue == null ? string.Empty: testValue.Trim());
                 }
@@ -1618,6 +1658,10 @@ namespace eDocGenEngine.Utils
         #endregion
 
         #region COC Methods
+        /// <summary>
+        /// Within MCO function
+        /// </summary>
+        /// <returns></returns>
         private Dictionary<string, string> GetSpecCOCParaDics()
         {
             Dictionary<string, string> cocDics = new Dictionary<string, string>();
@@ -1658,8 +1702,8 @@ namespace eDocGenEngine.Utils
                             if (testValues.Any())
                             {
                                 cocParaName = string.Format("RW_BIN{0}_FAB_WF_{1}", goodDieItem, cocItem.Display_Paramenter_Name);
-                                testAvg = testValues.Average(r => r.TryGetDecimal().Value);
-                                testStd = testValues.StdDev(r => r.TryGetDouble().Value);
+                                testAvg = Math.Round(testValues.Average(r => r.TryGetDecimal().Value), 6);
+                                testStd = Math.Round(testValues.StdDev(r => r.TryGetDouble().Value), 6);
                                 if (cocDics.ContainsKey(cocItem.Display_Paramenter_Name) == false)
                                 {
                                     cocDics.Add(cocParaName + "_AVG", testAvg.ToString());
@@ -1744,6 +1788,7 @@ namespace eDocGenEngine.Utils
             {
                 throw;
             }
+            //var res = decimal.Round(decimal.Parse(mcoVal), 2, MidpointRounding.AwayFromZero);
             return mcoVal;
         }
         private int GetTotalDieQty()
@@ -1786,26 +1831,35 @@ namespace eDocGenEngine.Utils
             {
                 MailHelper mailHelper = new MailHelper(_config);
                 if (string.IsNullOrEmpty(eDocGenUtil._EDocGlobVar.MailInfo.Subject))
-                    eDocGenUtil._EDocGlobVar.MailInfo.Subject = eDocGenUtil._EDocGlobVar.MailInfo.Content;
+                    eDocGenUtil._EDocGlobVar.MailInfo.Subject = _config["MailSettings:mailTitle"].ToString();
                 List<string> receivers = new List<string>();
                 string mainReceiver = string.Empty;
-                if (_EDocGlobVar.MailInfo.Level == 1)
-                    mainReceiver = SpecUtil._eDocInfoList.Where(r => r.Type == "EMAIL" && r.Key == "Lite IT email").FirstOrDefault()?.Value1;
-                else if (_EDocGlobVar.MailInfo.Level == 1)
-                    mainReceiver = SpecUtil._eDocInfoList.Where(r => r.Type == "EMAIL" && r.Key == "To").FirstOrDefault()?.Value1;
-                else if (_EDocGlobVar.MailInfo.Level == 1)
-                    mainReceiver = SpecUtil._eDocInfoList.Where(r => r.Type == "EMAIL" && r.Key == "Win Engineer email").FirstOrDefault()?.Value1;
+                if (Program._isDebug)
+                {
+                    mainReceiver = _config["MailSettings:receiveMails"].ToString();
+                }
                 else
-                    mainReceiver = SpecUtil._eDocInfoList.Where(r => r.Type == "EMAIL" && r.Key == "cc").FirstOrDefault()?.Value1;
+                {
+                    if (_EDocGlobVar.MailInfo.Level == 1)
+                        mainReceiver = SpecUtil._eDocInfoList.Where(r => r.Type == "EMAIL" && r.Key == "Lite IT email").FirstOrDefault()?.Value1;
+                    else if (_EDocGlobVar.MailInfo.Level == 1)
+                        mainReceiver = SpecUtil._eDocInfoList.Where(r => r.Type == "EMAIL" && r.Key == "To").FirstOrDefault()?.Value1;
+                    else if (_EDocGlobVar.MailInfo.Level == 1)
+                        mainReceiver = SpecUtil._eDocInfoList.Where(r => r.Type == "EMAIL" && r.Key == "Win Engineer email").FirstOrDefault()?.Value1;
+                    else
+                        mainReceiver = SpecUtil._eDocInfoList.Where(r => r.Type == "EMAIL" && r.Key == "cc").FirstOrDefault()?.Value1;
+                }
 
                 receivers.Add(mainReceiver);
-                mailHelper.SendMail("", receivers, string.Format("", _EDocGlobVar.MailInfo.Subject)
-                    , _EDocGlobVar.MailInfo.Content, true, _EDocGlobVar.MailInfo.Attachments.ToArray(), false);
+                _logger.Info(_EDocGlobVar.MailInfo.Subject);
+                mailHelper.SendMail(string.Empty, receivers, string.Format("[eDoc Generator Alert] - {0}", _EDocGlobVar.MailInfo.Subject)
+                    , _EDocGlobVar.MailInfo.Content, false,
+                    _EDocGlobVar.MailInfo.Attachments.Any() ? _EDocGlobVar.MailInfo.Attachments.ToArray() : null, false);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-
-                throw;
+                _logger.Error(ex.StackTrace);
+                _logger.Error(ex.Message);
             }
 
         }
@@ -1890,7 +1944,7 @@ namespace eDocGenEngine.Utils
                 wafer_item_list.Add(new TBL_WAFER_RESUME_ITEM() { Type = "eDoc", Key = "good_die_qty", Value = _EDocGlobVar.GoodDieQty.ToString() });
                 wafer_item_list.Add(new TBL_WAFER_RESUME_ITEM() { Type = "eDoc", Key = "status", Value = eMapStatus });
                 wafer_item_list.Add(new TBL_WAFER_RESUME_ITEM() { Type = "eDoc", Key = "error_message", Value = errorMessage });
-                wafer_item_list.Add(new TBL_WAFER_RESUME_ITEM() { Type = "eDoc", Key = "spec_file_path", Value = new FileInfo(SpecUtil._SpecFilePath).Name });
+                wafer_item_list.Add(new TBL_WAFER_RESUME_ITEM() { Type = "eDoc", Key = "spec_file_path", Value = File.Exists(_EDocGlobVar.GradingSpecFilePath) ? new FileInfo(_EDocGlobVar.GradingSpecFilePath).Name: _EDocGlobVar.GradingSpecFilePath });
                 wafer_item_list.Add(new TBL_WAFER_RESUME_ITEM() { Type = "eDoc", Key = "cbp_version", Value = _EDocGlobVar.WaferTestHeader.cbp_version });
                 wafer_item_list.Add(new TBL_WAFER_RESUME_ITEM() { Type = "eDoc", Key = "grade_spec_version", Value = _EDocGlobVar.WaferTestHeader.spec_version });
 
@@ -1908,10 +1962,8 @@ namespace eDocGenEngine.Utils
             string apiURL = "http://10.21.68.71/LumMVC_WebAPI/api/WaferResume/";
             try
             {
-                bool isDebug = false;
                 string apiConfigKey = "APIURL_Prod";
-                bool.TryParse(_config["Configurations:IsDebug"].ToString(), out isDebug);
-                if (isDebug)
+                if (Program._isDebug)
                     apiConfigKey = "APIURL_Test";
                 var apiConfig = _EDocGlobVar.EDocConfigList.Where(r => r.ConfigType == "Connections" && r.ConfigKey == apiConfigKey);
                 if (apiConfig != null && apiConfig.Count() > 0)
@@ -1941,12 +1993,12 @@ namespace eDocGenEngine.Utils
                                         copyFilePath, Environment.MachineName, item.Id);
                 if (eMapStatus == "Fail")
                 {
-                    if (item.RetryCount >= int.Parse(retryLimitCount))
+                    if (item.RetryCount == int.Parse(retryLimitCount) - 1)
                     {
                         //Success SQL Failed Over Limit
-                        sql = string.Format(@"Update [TBL_Traceability_Info] set status = 9, FilePath = '{0}',
-                                            LastUpdatedBy = '{1}', LastUpdatedDate = GETDATE() where Id = '{2}'", 
-                                            copyFilePath, Environment.MachineName, item.Id);
+                        sql = string.Format(@"Update [TBL_Traceability_Info] set RetryCount = {0} + 1, status = 9, FilePath = '{1}',
+                                            LastUpdatedBy = '{2}', LastUpdatedDate = GETDATE() where Id = '{3}'",
+                                            item.RetryCount, copyFilePath, Environment.MachineName, item.Id);
                     }
                     else
                     {

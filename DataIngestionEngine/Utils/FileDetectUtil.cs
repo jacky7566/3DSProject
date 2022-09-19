@@ -73,7 +73,7 @@ namespace DataIngestionEngine.Utils
                     _logger.Info("File ingest Failed! File Name: " + fi.FullName);
                     if (isMove == "Y")
                     {
-                        File.Copy(fi.FullName, failedPath + Path.DirectorySeparatorChar + fi.Name);
+                        File.Copy(fi.FullName, failedPath + Path.DirectorySeparatorChar + fi.Name, true);
                         File.Delete(fi.FullName);
                         _logger.Info("File ingest failed! Move to folder: " + failedPath);
                     }

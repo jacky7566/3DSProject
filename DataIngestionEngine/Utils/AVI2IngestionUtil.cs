@@ -19,6 +19,7 @@ namespace DataIngestionEngine.Utils
 {
     public class AVI2IngestionUtil
     {
+        private static eDocGenParaClass _eDocGenParaClass;
         public static string RW_Wafer_Id;
         public static string Wafer_Id;
         private static IConfiguration _config;
@@ -29,6 +30,8 @@ namespace DataIngestionEngine.Utils
         {
             _config = config;
             _logger = logger;
+            _eDocGenParaClass = new eDocGenParaClass();
+            _eDocGenParaClass.HeaderInfo = new Traceability_InfoClass();
         }
         public static bool ProcessStartAVI2(FileInfo file)
         {
@@ -63,8 +66,10 @@ namespace DataIngestionEngine.Utils
                             if (i == 0 && values[0] == "Wafer ID")
                             {
                                 //Create First HeaderInfo
+                                
                                 BuildAndAddNewHeaderInfo(ref headerList, string.Empty);
                                 headerList.LastOrDefault().RW_Wafer_Id = values[1].ToString();
+                                _eDocGenParaClass.HeaderInfo.RW_Wafer_Id = values[1].ToString(); //20220913 Jacky added For API usage
                             }
                             else if (i == 2 && values[0] == "End time")
                             {
@@ -80,6 +85,7 @@ namespace DataIngestionEngine.Utils
                                 if (string.IsNullOrEmpty(headerList.LastOrDefault().Wafer_Id) == true)
                                 {
                                     headerList.LastOrDefault().Wafer_Id = values[1].ToString(); //InputWafer
+                                    _eDocGenParaClass.HeaderInfo.Wafer_Id = values[1].ToString(); //20220913 Jacky added For API usage
                                 }
                                 else //Has value but different with previous row
                                 {
@@ -111,8 +117,13 @@ namespace DataIngestionEngine.Utils
                         {
                             MailHelper mail = new MailHelper(_config);
                             var rwId = headerList.FirstOrDefault().RW_Wafer_Id;
-                            mail.SendMail(String.Empty, new List<string>() { "jacky.li@lumentum.com" }, "eDoc Ingestion Alert - RW Wafer Id: " + rwId,
-                                string.Format("RW_Wafer_Id: {0} <BR> Error Message:<BR><BR>{1}", rwId, errorSB.ToString()).Replace("\n\r", "<BR>"), true);
+                            var subject = "eDoc Ingestion Alert - RW Wafer Id: " + rwId;
+                            var content = string.Format("RW_Wafer_Id: {0} <BR> Error Message:<BR><BR>{1}", rwId, errorSB.ToString()).Replace("\n\r", "<BR>");
+                            mail.SendMail(string.Empty, new List<string>() { "jacky.li@lumentum.com" }, subject, content, true);
+                            _eDocGenParaClass.MailInfo = new eDocAlertClass();
+                            _eDocGenParaClass.MailInfo.Subject = subject; //20220913 Jacky added For API usage
+                            _eDocGenParaClass.MailInfo.Content = content; //20220913 Jacky added For API usage
+                            CallAPI(errorSB.ToString());
                             return false;
                         }
                         if (await ImportToHeaderInfoAsync(headerList))
@@ -152,7 +163,6 @@ namespace DataIngestionEngine.Utils
                 RetryCount = 0
             });
         }
-
         private static void BuildAndAddNewBody(ref List<AVI2_RawDataClass> bodyList, Traceability_InfoClass header, string[] values)
         {
             try
@@ -184,7 +194,6 @@ namespace DataIngestionEngine.Utils
             }
 
         }
-
         private static async Task<bool> ImportToHeaderInfoAsync(List<Traceability_InfoClass> headerList) 
         {
             //Insert Header Info by List
@@ -464,7 +473,7 @@ namespace DataIngestionEngine.Utils
                             var bincodes = configs[0].Split(',').ToList();
                             var percentage = configs[1].ToString();
                             var avi2CtrlBins = bodyList.Where(r => bincodes.Contains(r.Bin_AOI2)).Count().ToString();
-                            var avi2Bins = bodyList.Select(r => r.Bin_AOI2).Count().ToString();
+                            var avi2Bins = bodyList.Where(r=> r.Wafer_Id != "Fiducial").Select(r => r.Bin_AOI2).Count().ToString();
                             var curPer = Math.Round((double.Parse(avi2CtrlBins) / double.Parse(avi2Bins)) * 100, 2);
                             var ctrlPer = 0.0;
                             double.TryParse(percentage, out ctrlPer);
@@ -509,6 +518,17 @@ namespace DataIngestionEngine.Utils
             }
 
             return list;
+        }
+
+        private static void CallAPI(string errorMessage)
+        {            
+            _eDocGenParaClass.GradingFileList = new List<string>();
+            _eDocGenParaClass.AVI2FilePath = _inputFilePath;
+            _eDocGenParaClass.GoodDieQty = 0;
+            _eDocGenParaClass.GradingSpecFilePath = "";
+            _eDocGenParaClass.WaferTestHeader = new eDocWaferTestHeaderClass();
+            APIHelper aPIHelper = new APIHelper(_config, _logger, _eDocGenParaClass);
+            aPIHelper.SendEDocAPI("Fail", errorMessage);
         }
     }
 }

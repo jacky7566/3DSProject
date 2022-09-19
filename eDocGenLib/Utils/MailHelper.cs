@@ -163,7 +163,7 @@ namespace eDocGenLib.Utils
             }
             catch (Exception)
             {
-                return false;//寄失敗
+                throw;
             }
         }
     }

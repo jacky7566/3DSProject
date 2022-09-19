@@ -23,5 +23,6 @@ namespace eDocGenLib.Classes.eDocGenEngine
         public string POR_Version { get; set; }
         public eDocAlertClass MailInfo { get; set; }
         public DateTime CreationStartTime { get; set; }
+        public string GradingSpecFilePath { get; set; }
     }
 }
