@@ -32,6 +32,7 @@ namespace eDocGenEngine.Utils
             _logger = logger;
             _sqlConn = new SqlConnection(_config["ConnectionStrings:DefaultConnection"]);
         }
+
         public void GetEDocSpec(string maskIDPrefix)
         {
             _Mask = maskIDPrefix;
@@ -188,6 +189,13 @@ namespace eDocGenEngine.Utils
         }
         public void GetMCOSpecInfo(string maskIDPrefix)
         {
+            //Is get MCO
+            var isGetMCO = false;
+            var isGetMCOConfig = _eDocInfoList.Where(r => r.Key == "Include MCO(Y/N)");
+            if (isGetMCOConfig != null && isGetMCOConfig.Any())
+                isGetMCO = isGetMCOConfig.FirstOrDefault().Value1 == "Y" ? true : false;
+
+            if (isGetMCO == false) return;
             _eDocMCOSpecList = new List<eDocMCOSpecClass>();
             eDocMCOSpecClass item = null;
             var pis = typeof(eDocMCOSpecClass).GetProperties();

@@ -41,7 +41,9 @@ namespace eDocGenEngine.Utils
 
         public List<Traceability_InfoClass> GetProcessList(string retryLimitCount)
         {
-            var sql = string.Format("select * from [TBL_Traceability_Info] where status = 1 and retrycount < {0} order by LastUpdatedDate asc", retryLimitCount);
+            var sql = string.Format(@"select * from [TBL_Traceability_Info] 
+                        where status = 1 and retrycount < {0} and CreatedBy = '{1}' order by LastUpdatedDate asc",
+                        retryLimitCount, Environment.MachineName);
             _logger.Info(sql);
             try
             {
@@ -117,7 +119,7 @@ namespace eDocGenEngine.Utils
 
                 //Get Grading Summary Path By RW Wafer Id
                 var gradePathList = QueryGradingPath();
-                if (gradePathList == null || gradePathList.Count() == 0)
+                if ((gradePathList == null || gradePathList.Count() == 0) && _EDocGlobVar.ExcludeGradingResult == false)
                 {
                     return false;
                 }
@@ -222,6 +224,13 @@ namespace eDocGenEngine.Utils
             ConnectionHelper connectionHelper = new ConnectionHelper(_config);
             try
             {
+                _EDocGlobVar.ExcludeGradingResult = false;
+                var isExcludeGradingConfig = _EDocGlobVar.EDocConfigList.Where(r => r.ConfigKey == "ExcludeGradingResult(Y/N)" 
+                && r.ConfigType == _EDocGlobVar.HeaderInfo.Wafer_Id.Substring(0, 5) + "_Config");
+                if (isExcludeGradingConfig != null && isExcludeGradingConfig.Any())
+                    _EDocGlobVar.ExcludeGradingResult = isExcludeGradingConfig.FirstOrDefault().ConfigValue == "Y" ? true : false;
+
+                if (_EDocGlobVar.ExcludeGradingResult) return null;
                 _logger.Info("Query Grading Path...");
                 //Get Wafer List from AVI2 Data
                 var sql = string.Format(@"select Wafer_Id from 
@@ -239,8 +248,8 @@ namespace eDocGenEngine.Utils
                     //    on h.Wafer_ID = hm.Wafer_ID and h.InsertTime = hm.MaxInsertTime
                     //    where h.filetype = 'Grade_Summary' and h.wafer_id in ('{0}') ", wafers);
                     sql = String.Format(@"select h.Wafer_Id, h.Target_path from grading_dev.dbo.tbl_file_trace h
-                        inner join (select Wafer_Id, max(InsertTime) MaxInsertTime from grading_dev.dbo.tbl_file_trace group by Wafer_Id) hm
-                        on h.Wafer_ID = hm.Wafer_ID and h.InsertTime = hm.MaxInsertTime
+                        inner join (select Wafer_Id, max(InsertTime) MaxInsertTime, FileType from grading_dev.dbo.tbl_file_trace group by Wafer_Id, FileType) hm
+                        on h.Wafer_ID = hm.Wafer_ID and h.InsertTime = hm.MaxInsertTime and h.FileType = hm.FileType
                         where h.filetype = 'Grade_Summary' and h.wafer_id in ('{0}') ", wafers);
                     var gradeSumList = connectionHelper.QueryDataBySQL(sql);
                     if (gradeSumList.Count > 0)
@@ -265,6 +274,13 @@ namespace eDocGenEngine.Utils
                         }
                         return res;
                     }
+                }
+                else
+                {
+                    _EDocGlobVar.MailInfo.Subject = "Missing AVI2 Header Info";
+                    _EDocGlobVar.MailInfo.Content = "Missing AVI2 Header Info. SQL: " + sql;
+                    _EDocGlobVar.MailInfo.Level = 1;
+                    _logger.Info(_EDocGlobVar.MailInfo.Content);
                 }
             }
             catch (Exception ex)
@@ -336,7 +352,9 @@ namespace eDocGenEngine.Utils
         {
 
             string inProcessWaferID = string.Empty;
-            
+            if (_EDocGlobVar.ExcludeGradingResult) //No need check if exclude grading result
+                return;
+
             try
             {
                 var configInfo = SpecUtil._eDocInfoList.Where(r => r.Type == "Config");
@@ -391,6 +409,9 @@ namespace eDocGenEngine.Utils
 
             try
             {
+                if (_EDocGlobVar.ExcludeGradingResult) //No need check if exclude grading result
+                    return;
+
                 var configInfo = SpecUtil._eDocInfoList.Where(r => r.Type == "Config");
                 if (configInfo != null && configInfo.Count() > 0)
                 {
@@ -550,6 +571,9 @@ namespace eDocGenEngine.Utils
         #region Main Process
         private void ImportGradingData(List<eDocGradePathClass> gradePathList)
         {
+            if (_EDocGlobVar.ExcludeGradingResult) //No need check if exclude grading result
+                return;
+
             _logger.Info("Start Import Grading Data...");
             Dictionary<string, string> gradingDics = new Dictionary<string, string>();
 
@@ -596,6 +620,9 @@ namespace eDocGenEngine.Utils
         }
         private void CheckBinCodeConflict(string waferId)
         {
+            if (_EDocGlobVar.ExcludeGradingResult) //No need check if exclude grading result
+                return;
+
             bool isCheckConfilct = true;
             StringBuilder errorMsgSB = new StringBuilder();            
             try
@@ -682,6 +709,9 @@ namespace eDocGenEngine.Utils
         }
         private void CheckGradingResultInSpec(string waferId)
         {
+            if (_EDocGlobVar.ExcludeGradingResult) //No need check if exclude grading result
+                return;
+
             try
             {
                 _logger.Info("Check Grading Result In Spec...");
@@ -746,9 +776,12 @@ namespace eDocGenEngine.Utils
             try
             {
                 var oosPath = _EDocGlobVar.EDocConfigList.Where(r => r.ConfigType == "Output" && r.ConfigKey == "OOS").FirstOrDefault();
+                var errPath = _EDocGlobVar.EDocConfigList.Where(r => r.ConfigType == "Output" && r.ConfigKey == "Error").FirstOrDefault();
                 var oosMaskPath = Path.Combine(oosPath.ConfigValue, waferId.Substring(0, 5));
                 if (Directory.Exists(oosMaskPath) == false) 
                     Directory.CreateDirectory(oosMaskPath);
+                if (Directory.Exists(errPath.ConfigValue) == false)
+                    Directory.CreateDirectory(errPath.ConfigValue);
 
                 var newFileName = string.Format(@"{0}\{1}\{2}_AUTORMP_{3}.txt",
                     oosPath.ConfigValue, waferId.Substring(0, 5), System.IO.Path.GetFileNameWithoutExtension(_EDocGlobVar.AVI2FilePath),
@@ -759,7 +792,7 @@ namespace eDocGenEngine.Utils
 
                 string[] values;
                 bool isLineStart = false;
-                _EDocGlobVar.MailInfo.Attachments = new List<string>();
+                string tmpMsg = string.Empty;                
                 for (int i = 0; i < lines.Length; i++)
                 {
                     if (isLineStart)
@@ -768,16 +801,16 @@ namespace eDocGenEngine.Utils
                         var gx = values[2];
                         var gy = values[3];
                         var n = values.Length;
-                        for (int j = 0; j < oosList.FirstOrDefault().Count(); j++)
+                        var oosItem = oosList.FirstOrDefault().Where(r => r["GX"] == gx && r["GY"] == gy).FirstOrDefault();
+                        if (oosItem != null)
                         {
-                            var oosItem = oosList.FirstOrDefault().Where(r => r["GX"] == gx && r["GY"] == gy).FirstOrDefault();
-                            if (oosItem != null)
-                            {
-                                values[n - 1] = tMapSpecItem.Bin_Code;
-                                lines[i] = string.Join(";", values);
-                                sb.AppendFormat("{0}({1}) bincode changed to {2}", lines[i], tMapSpecItem.Test_Parameter_Name, tMapSpecItem.Bin_Code);
-                                sb.AppendLine();
-                            }
+                            values[n - 1] = tMapSpecItem.Bin_Code;
+                            lines[i] = string.Join(";", values);
+                            tmpMsg = string.Format("{0}({1}) bincode changed to {2}", lines[i], tMapSpecItem.Test_Parameter_Name, tMapSpecItem.Bin_Code);
+                            //_logger.Info(tmpMsg);
+                            sb.Append(tmpMsg);
+                            //sb.AppendFormat("{0}({1}) bincode changed to {2}", lines[i], tMapSpecItem.Test_Parameter_Name, tMapSpecItem.Bin_Code);
+                            sb.AppendLine();
                         }
                     }
 
@@ -791,10 +824,15 @@ namespace eDocGenEngine.Utils
                 }
                 if (newLineSB.Length > 0)
                 {
+                    //Copy source file into error folder
+                    var fi = new FileInfo(_EDocGlobVar.AVI2FilePath);
+                    fi.CopyTo(Path.Combine(errPath.ConfigValue, fi.Name), true);
+
                     if (File.Exists(newFileName))
                         File.Delete(newFileName);
 
                     File.WriteAllText(newFileName, newLineSB.ToString(), Encoding.ASCII);
+                    _EDocGlobVar.MailInfo.Attachments = new List<string>();
                     _EDocGlobVar.MailInfo.Attachments.Add(newFileName);
                 }
             }
@@ -961,6 +999,7 @@ namespace eDocGenEngine.Utils
             _logger.Info("Generate COC");
             try
             {
+                bool isSpecialCoCFormat = IsSpecialCoCFormat();
                 StringBuilder sb = new StringBuilder();
                 string fileName = string.Format("{0}_COC.csv", _EDocGlobVar.HeaderInfo.RW_Wafer_Id);
                 var waferList = _EDocGlobVar.RWMapList.Where(r=> r.Wafer_Id != null && r.Wafer_Id != "Fiducial")
@@ -989,7 +1028,12 @@ namespace eDocGenEngine.Utils
                 sb.AppendLine(string.Format("RW_WF_ID,{0}", RepStrSepByComma(_EDocGlobVar.HeaderInfo.RW_Wafer_Id, waferCount)));
                 sb.AppendLine(string.Format("RW_WF_EMAP_FILENAME,{0}", RepStrSepByComma(_OutputFileDic["EMAP"], waferCount)));
                 sb.AppendLine(string.Format("RW_WF_TMAP_FILENAME,{0}", RepStrSepByComma(_OutputFileDic["TMAP"], waferCount)));
-                sb.AppendLine(string.Format("RW_WF_TOTAL_FAB_WF_QTY_USED,{0}", RepStrSepByComma(waferCount.ToString(), waferCount)));
+
+                if (isSpecialCoCFormat) //20221019 for Raven new format Usage
+                    sb.AppendLine(string.Format("RW_WF_FAB_WF_QTY_USED,{0}", RepStrSepByComma(waferCount.ToString(), waferCount)));
+                else
+                    sb.AppendLine(string.Format("RW_WF_TOTAL_FAB_WF_QTY_USED,{0}", RepStrSepByComma(waferCount.ToString(), waferCount)));
+
                 sb.AppendLine(string.Format("RW_WF_SORT_DATE,{0}", RepStrSepByComma(_EDocGlobVar.HeaderInfo.Sort_Date.ToString("MM/dd/yyyy"), waferCount)));
                 sb.AppendLine(String.Format("RW_WF_TOTAL_DIE_QTY,{0}", GetTotalDieQty()));
                 sb.Append("RW_WF_GOOD_DIE_QTY");
@@ -998,10 +1042,19 @@ namespace eDocGenEngine.Utils
                     sb.AppendFormat(",{0}", GetGoodDieQtyByWafer(waferItem.Wafer_ID));
                 }
                 sb.AppendLine();
+                //20221017 Jacky added for Extra_COC_Parameter (RW_WF_WAIVER_STATUS)                
+                var extraCocList = GetExtraCoCParameters(_EDocGlobVar.HeaderInfo.Wafer_Id);
+                if (extraCocList.Any())
+                {
+                    foreach (var para in extraCocList)
+                    {
+                        sb.AppendLine(string.Format("{0},{1}", para, RepStrSepByComma(GetEDocInfoConfig("CoC", para), waferCount)));
+                    }
+                }
                 #endregion
 
                 #region LoadCOCParameters
-                var cocSpecDics = GetSpecCOCParaDics();
+                var cocSpecDics = GetSpecCOCParaDics(isSpecialCoCFormat) ;
                 foreach (var cocKvp in cocSpecDics)
                 {
                     sb.AppendLine(string.Format("{0},{1}", cocKvp.Key, cocKvp.Value));
@@ -1049,14 +1102,10 @@ namespace eDocGenEngine.Utils
         public bool GetEDocConfigList()
         {
             _EDocGlobVar.EDocConfigList = new List<eDocConfigClass>();
-            var sql = string.Format(@"select * from [dbo].[TBL_eDoc_Config] where ServerName = '{0}' ", Environment.MachineName);
             try
             {
-                using (var sqlConn = new SqlConnection(_config["ConnectionStrings:DefaultConnection"]))
-                {
-                    _EDocGlobVar.EDocConfigList = sqlConn.Query<eDocConfigClass>(sql).ToList();
-                }
-                
+                _EDocGlobVar.EDocConfigList = ConnectionHelper.GetEDocConfigList(_config);
+
                 if (_EDocGlobVar.EDocConfigList.Count == 0)
                 {
                     _EDocGlobVar.MailInfo.Content = string.Format("GetEDocConfigList - No data found! Server Name: {0}", Environment.MachineName);
@@ -1145,12 +1194,17 @@ namespace eDocGenEngine.Utils
         {
             try
             {
-                return SpecUtil._eDocInfoList.Where(r => r.Type == type && r.Key.ToUpper() == key).FirstOrDefault().Value1;
+                var eDocInfoCfg = SpecUtil._eDocInfoList.Where(r => r.Type == type && r.Key.ToUpper() == key);
+                if (eDocInfoCfg != null && eDocInfoCfg.Any())
+                {
+                    return eDocInfoCfg.FirstOrDefault().Value1;
+                }               
             }
             catch (Exception)
             {
                 throw;
             }
+            return string.Empty;
         }
         private string RepStrSepByComma(string input, int count)
         {
@@ -1662,7 +1716,7 @@ namespace eDocGenEngine.Utils
         /// Within MCO function
         /// </summary>
         /// <returns></returns>
-        private Dictionary<string, string> GetSpecCOCParaDics()
+        private Dictionary<string, string> GetSpecCOCParaDics(bool isSpecialCoCFormat)
         {
             Dictionary<string, string> cocDics = new Dictionary<string, string>();
             var testValues = new List<string>();
@@ -1690,7 +1744,10 @@ namespace eDocGenEngine.Utils
                         //                     && grr["PRE_AOI_PF"] == "P" //&& rw.EMap_BinCode == goodDieItem
                         //                     select new eDocTMapMergeClass { GradingItem = grr, RWItem = rw }).ToList();
                         var gradingList = dt.Where(r => r["PRE_AOI_PF"] == "P").ToList();
-                        cocDics.Add(string.Format("RW_BIN{0}_FAB_WF_ID", goodDieItem), tempWaferId);                        
+                        cocDics.Add(string.Format("RW_BIN{0}_FAB_WF_ID", goodDieItem), tempWaferId);  
+                        //2022/10/20 Add special CoC Format
+                        if (isSpecialCoCFormat)
+                            cocDics.Add(string.Format("RW_BIN{0}_FAB_WF_MRB", goodDieItem), "0");
                         cocDics.Add(string.Format("RW_BIN{0}_FAB_WF_TOTAL_DIE_QTY", goodDieItem), GetTotalDieQty().ToString());
                         goodBinQty = _EDocGlobVar.RWMapList.Where(r => r.EMap_BinCode == goodDieItem).Count();
                         cocDics.Add(string.Format("RW_BIN{0}_FAB_WF_GOOD_DIE_QTY", goodDieItem), goodBinQty.ToString());
@@ -1716,7 +1773,8 @@ namespace eDocGenEngine.Utils
                                 }
                             }
                         }
-                        cocDics.AddRange(GetMCOInfo(goodDieItem));
+                        if (_EDocGlobVar.MCOAthenaList != null && _EDocGlobVar.MCOAthenaList.Any()) //20221013 Fixed MCO null issue
+                            cocDics.AddRange(GetMCOInfo(goodDieItem));
                     }
                 }
             }
@@ -1755,7 +1813,6 @@ namespace eDocGenEngine.Utils
             }
             return result;
         }
-
         private string MCODataCompareFunc(IDictionary<string, object> mcoDicItem, string athenaMCOCol)
         {
             string mcoVal = string.Empty;
@@ -1822,6 +1879,40 @@ namespace eDocGenEngine.Utils
             }
             return goodDieQty;
         }
+        private List<string> GetExtraCoCParameters(string waferId)
+        {
+            List<string> extraCocPara = new List<string>();
+            try
+            {
+                var eDocConfig = _EDocGlobVar.EDocConfigList.Where(r => r.ConfigKey == "Extra_COC_Parameter" && r.ConfigType == waferId.Substring(0, 5) + "_Config");
+                if (eDocConfig != null && eDocConfig.Any())
+                {
+                    extraCocPara = eDocConfig.FirstOrDefault().ConfigValue.Split(',').ToList();
+                }
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+
+            return extraCocPara;
+        }
+        private bool IsSpecialCoCFormat()
+        {
+            bool isSpecialCoCFormat = false;
+            try
+            {
+                var config = this.GetEDocInfoConfig("CoC", "NEWATHENSCOCFORMAT(Y/N)");
+                if (string.IsNullOrEmpty(config) == false && config == "Y")
+                    isSpecialCoCFormat = true;
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+
+            return isSpecialCoCFormat;
+        }
         #endregion
 
         #region SendAlert
@@ -1836,7 +1927,7 @@ namespace eDocGenEngine.Utils
                 string mainReceiver = string.Empty;
                 if (Program._isDebug)
                 {
-                    mainReceiver = _config["MailSettings:receiveMails"].ToString();
+                    receivers.AddRange(_config["MailSettings:receiveMails"].ToString().Split(",").ToList());
                 }
                 else
                 {
@@ -1848,13 +1939,15 @@ namespace eDocGenEngine.Utils
                         mainReceiver = SpecUtil._eDocInfoList.Where(r => r.Type == "EMAIL" && r.Key == "Win Engineer email").FirstOrDefault()?.Value1;
                     else
                         mainReceiver = SpecUtil._eDocInfoList.Where(r => r.Type == "EMAIL" && r.Key == "cc").FirstOrDefault()?.Value1;
-                }
 
-                receivers.Add(mainReceiver);
+                    receivers.Add(mainReceiver);
+                }
+                
                 _logger.Info(_EDocGlobVar.MailInfo.Subject);
                 mailHelper.SendMail(string.Empty, receivers, string.Format("[eDoc Generator Alert] - {0}", _EDocGlobVar.MailInfo.Subject)
                     , _EDocGlobVar.MailInfo.Content, false,
-                    _EDocGlobVar.MailInfo.Attachments.Any() ? _EDocGlobVar.MailInfo.Attachments.ToArray() : null, false);
+                    (_EDocGlobVar.MailInfo.Attachments != null && _EDocGlobVar.MailInfo.Attachments.Any()) 
+                    ? _EDocGlobVar.MailInfo.Attachments.ToArray() : null, false);
             }
             catch (Exception ex)
             {
@@ -1897,8 +1990,8 @@ namespace eDocGenEngine.Utils
                 sb.Append(GetGradingPaths());
                 sb.Append(Assembly.GetExecutingAssembly().GetName().Name + " V" + Assembly.GetExecutingAssembly().GetName().Version).Append(";");
                 sb.Append(_EDocGlobVar.EMapVersion).Append(",");
-                sb.Append(_EDocGlobVar.CreationStartTime).Append(",");
-                sb.Append(DateTime.Now).Append(",");
+                sb.Append(_EDocGlobVar.CreationStartTime.ToString("yyyy-MM-dd HH:mm:ss")).Append(",");
+                sb.Append(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")).Append(",");
                 sb.Append(_EDocGlobVar.GoodDieQty).Append(",");
                 sb.Append(eMapStatus).Append(",");
                 sb.Append(errorMessage).Append(",");
@@ -1912,7 +2005,9 @@ namespace eDocGenEngine.Utils
                 if (eMapStatus == "Success")
                 {
                     CopyToS3Folder(headerFN);
-                    CopyToS3Folder(Path.Combine(_EDocGlobVar.EDocResultPath, _OutputFileDic["TMAP"]));
+                    //Check if exist tMap
+                    if (_OutputFileDic.ContainsKey("TMAP"))
+                        CopyToS3Folder(Path.Combine(_EDocGlobVar.EDocResultPath, _OutputFileDic["TMAP"]));
                 }
                     
             }
@@ -2025,6 +2120,30 @@ namespace eDocGenEngine.Utils
                 _logger.Error(ex.StackTrace);
                 return 0;
             }            
+        }
+
+        public int DeleteTBL_AVI2_RAW(Traceability_InfoClass item)
+        {
+            try
+            {
+                _logger.Info("DeleteTBL_AVI2_RAW - RW_Wafer_Id: " + item.RW_Wafer_Id);
+
+                //Delete SQL
+                string sql = string.Format("Delete From Tbl_AVI2_RawData WHERE RW_Wafer_Id = '{0}' ", item.RW_Wafer_Id);
+
+                using (var sqlConn = new SqlConnection(_config["ConnectionStrings:DefaultConnection"]))
+                {
+                    var res = sqlConn.Execute(sql);
+                    if (res > 0) _logger.Info("Success!");
+                    else _logger.Info("Failed");
+                    return res;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error(ex.StackTrace);
+                return 0;
+            }
         }
         #endregion
     }

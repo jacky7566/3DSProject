@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 16
-VisualStudioVersion = 16.0.30717.126
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.32126.317
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "eDocGenUI", "eDocGenUI\eDocGenUI.csproj", "{DE0CE4DA-37B4-4CD2-8A8C-C234EEE5E7FE}"
 EndProject
@@ -12,6 +12,8 @@ EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "eDocGenLib", "eDocGenLib\eDocGenLib.csproj", "{1A2E5C9F-C328-4AA7-9A07-59FF16FD8B5F}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "eDocGenAPI", "eDocGenAPI\eDocGenAPI.csproj", "{348257D6-0EAD-46CD-AA89-43BDEE385C87}"
+EndProject
+Project("{54435603-DBB4-11D2-8724-00A0C9A8B90C}") = "eDocGenUISetup", "eDocGenUISetup\eDocGenUISetup.vdproj", "{AF401869-05C2-460B-9352-62E3DA66C329}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -39,6 +41,8 @@ Global
 		{348257D6-0EAD-46CD-AA89-43BDEE385C87}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{348257D6-0EAD-46CD-AA89-43BDEE385C87}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{348257D6-0EAD-46CD-AA89-43BDEE385C87}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AF401869-05C2-460B-9352-62E3DA66C329}.Debug|Any CPU.ActiveCfg = Debug
+		{AF401869-05C2-460B-9352-62E3DA66C329}.Release|Any CPU.ActiveCfg = Release
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

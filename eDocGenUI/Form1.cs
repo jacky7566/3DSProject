@@ -1,4 +1,5 @@
-﻿using eDocGenUI.Classes;
+﻿using eDocGenLib.Utils;
+using eDocGenUI.Classes;
 using eDocGenUI.Utils;
 using Newtonsoft.Json.Linq;
 using System;
@@ -11,6 +12,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -24,6 +26,7 @@ namespace eDocGenUI
         {
             InitializeComponent();
             _HeaderDataTable = new DataTable();
+            InitialTimer();
         }
 
         private void FileUpload()
@@ -34,7 +37,26 @@ namespace eDocGenUI
             openFileDialog.Filter = "UMC files (*.*)|*.UMC";
         }
 
+        private void InitialTimer()
+        {
+            _esTimer.Interval = 60000;
+            _esTimer.Tick += _esTimer_Tick;
+        }
+
+
         #region Event Handler
+        private void _esRefreshCkb_CheckedChanged(object sender, EventArgs e)
+        {
+            if (_esRefreshCkb.Checked)
+                _esTimer.Enabled = true;
+            else _esTimer.Enabled = false;
+        }
+        private void _esTimer_Tick(object sender, EventArgs e)
+        {
+            if (string.IsNullOrEmpty(_esMaskGrpCmb.Text) == false || string.IsNullOrEmpty(_esMaskCmb.Text) == false)
+                _ = this.RefreshSuccessStatusGVAsync();
+        }
+
         private async void _uploadUMCBtn_Click(object sender, EventArgs e)
         {
             try
@@ -66,7 +88,7 @@ namespace eDocGenUI
                         values.Add("EMapVersion", eMapVersion);
                         this.progressBar1.Visible = true;
                         this.progressBar1.Style = ProgressBarStyle.Marquee;
-                        var resMsg = await APIHelper.PostAPIAsync("ProcessAndUploadUMCFile", values);
+                        var resMsg = await UI_APIHelper.PostAPIAsync("ProcessAndUploadUMCFile", values);
                         this.progressBar1.Visible = false;                     
                         MessageBox.Show(resMsg);                        
                     }
@@ -82,7 +104,7 @@ namespace eDocGenUI
             }
             finally
             {
-                await this.RefreshGridViewAsync();
+                await this.RefreshSpecInfoGridViewAsync();
             }
         }
         private void DataGridView1_CellContentClick(object sender, DataGridViewCellEventArgs e)
@@ -92,7 +114,6 @@ namespace eDocGenUI
                 MessageBox.Show("Test");
             }
         }
-
         private async void dataGridView1_CellDoubleClick(object sender, DataGridViewCellEventArgs e)
         {
             if (e.ColumnIndex == -1) return;
@@ -109,7 +130,7 @@ namespace eDocGenUI
                     case "EMapVersion":
                         var dtr = _HeaderDataTable.Rows[e.RowIndex];
                         await uIEventHelper.EMapVersionEventAsync(dtr);
-                        await this.RefreshGridViewAsync();
+                        await this.RefreshSpecInfoGridViewAsync();
                         break;
                     default:
                         break;
@@ -140,13 +161,69 @@ namespace eDocGenUI
         {
             try
             {
-                await this.RefreshGridViewAsync();
+                await this.RefreshSpecInfoGridViewAsync();
             }
             catch (Exception ex)
             {
                 MessageBox.Show(ex.Message);
             }
             
+        }
+        private async void _esMaskGrpCmb_SelectedValueChanged(object sender, EventArgs e)
+        {
+            try
+            {
+                var list = await UI_APIHelper.GetMaskListByAPI(LookupHelper.ConvertMaskGroupName(this._esMaskGrpCmb.Text));
+                this._esMaskCmb.DataSource = list;
+                this._esMaskCmb.Refresh();
+
+                await this.RefreshSuccessStatusGVAsync();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message);
+            }
+        }
+
+        private async void _esMaskCmb_SelectedValueChanged(object sender, EventArgs e)
+        {
+            try
+            {
+                await this.RefreshSuccessStatusGVAsync();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message);
+            }
+        }
+
+        private async void _esUplBtn_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrEmpty(this._esUplCmb.Text))
+            {
+                MessageBox.Show("Please select file upload path!");
+                return;
+            }    
+            OpenFileDialog openFileDialog = new OpenFileDialog();
+            openFileDialog.CheckFileExists = true;
+            openFileDialog.AddExtension = true;
+            openFileDialog.Multiselect = true;
+            openFileDialog.Filter = "txt files (*.txt)|*.txt";
+
+            if (openFileDialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+            {
+                var res = await UI_APIHelper.UploadFilesAsync(this._esUplCmb.Text, openFileDialog.FileNames);
+                if (res)
+                    MessageBox.Show("Uploaded files successfully!");
+                else
+                    MessageBox.Show("Uploaded files failed!");
+            }
+        }
+
+        private void _esUplCmb_SelectedValueChanged(object sender, EventArgs e)
+        {
+            //if (IsDirectoryWritable(this._esUplCmb.Text) == false)
+            //    MessageBox.Show("No permission to upload file, please contact IT owner!");
         }
         #endregion
 
@@ -163,9 +240,9 @@ namespace eDocGenUI
             System.Windows.Forms.Cursor.Current = Cursors.Default;
         }
 
-        private async Task RefreshGridViewAsync()
+        private async Task RefreshSpecInfoGridViewAsync()
         {
-            _HeaderDataTable = await APIHelper.GetSpecInfoByAPI(LookupHelper.ConvertMaskGroupName(this.maskGrpCmb.Text));
+            _HeaderDataTable = await UI_APIHelper.GetSpecInfoByAPI(LookupHelper.ConvertMaskGroupName(this.maskGrpCmb.Text));
 
             this.dataGridView1.DataSource = _HeaderDataTable;
             this.dataGridView1.Columns["Spec_Id"].Visible = false;
@@ -186,9 +263,48 @@ namespace eDocGenUI
             this.dataGridView1.Refresh();
         }
 
+        private async Task RefreshSuccessStatusGVAsync()
+        {
+            var successDt = await UI_APIHelper.GeteDocListByAPI(LookupHelper.ConvertMaskGroupName(this._esMaskGrpCmb.Text),
+                this._esMaskCmb.Text, "Success", this._esNumUpDown.Value.ToString());
+
+            this._passDgv.DataSource = successDt;
+            this._passDgv.Refresh();
+
+            var failDt = await UI_APIHelper.GeteDocListByAPI(LookupHelper.ConvertMaskGroupName(this._esMaskGrpCmb.Text),
+                this._esMaskCmb.Text, "Fail", this._esNumUpDown.Value.ToString());
+            this._esFailGdv.DataSource = failDt;
+            this._esFailGdv.Refresh();
+
+            _esUpdTime.Text = "Last Updated Time: " + DateTime.Now.ToString("yyyy/MM/dd HH:mm:ss");
+        }
+
+        private bool IsDirectoryWritable(string dirPath, bool throwIfFails = false)
+        {
+            try
+            {
+                using (FileStream fs = File.Create(
+                    Path.Combine(
+                        dirPath,
+                        Path.GetRandomFileName()
+                    ),
+                    1,
+                    FileOptions.DeleteOnClose)
+                )
+                { }
+                return true;
+            }
+            catch
+            {
+                if (throwIfFails)
+                    throw;
+                else
+                    return false;
+            }
+        }
 
         #endregion
 
- 
+
     }
 }

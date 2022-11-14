@@ -29,7 +29,9 @@
     <Compile Include="Classes\eDocGenEngine\TBL_WAFER_RESUME_ITEM.cs" />
     <Compile Include="Classes\GradingSpecClass.cs" />
     <Compile Include="Classes\RWDimensionClass.cs" />
+    <Compile Include="Classes\TraceabilityStatusClass.cs" />
     <Compile Include="Classes\Traceability_InfoClass.cs" />
+    <Compile Include="Classes\UploadResponse.cs" />
   </ItemGroup>
 
   <ItemGroup>

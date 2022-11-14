@@ -9,6 +9,7 @@ using Microsoft.Data.SqlClient;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using eDocGenLib.Classes.eDocGenEngine;
 
 namespace eDocGenLib.Utils
 {
@@ -59,13 +60,14 @@ namespace eDocGenLib.Utils
             return dbcn;
         }
         public List<dynamic> QueryDataBySQL(string sql)
-        {
+        {            
             List<dynamic> list = new List<dynamic>();
             try
             {
+                var commandTimeout = int.Parse(_config["Configurations:SQL_CommandTimeout"].ToString());
                 using (var sqlConn = new SqlConnection(connStr))
                 {                    
-                    list = sqlConn.Query<dynamic>(sql).ToList();
+                    list = sqlConn.Query<dynamic>(sql, null, null, true, commandTimeout, null).ToList();
                 }
             }
             catch (Exception)
@@ -131,6 +133,24 @@ namespace eDocGenLib.Utils
             }
             //This is our datatable filled with data
             return dt;
+        }
+
+        public static List<eDocConfigClass> GetEDocConfigList(IConfiguration _config)
+        {
+            var list = new List<eDocConfigClass>();
+            var sql = string.Format(@"select * from [dbo].[TBL_eDoc_Config] where ServerName = '{0}' ", Environment.MachineName);
+            try
+            {
+                using (var sqlConn = new SqlConnection(_config["ConnectionStrings:DefaultConnection"]))
+                {
+                    list = sqlConn.Query<eDocConfigClass>(sql).ToList();
+                }              
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+            return list;
         }
     }
 }

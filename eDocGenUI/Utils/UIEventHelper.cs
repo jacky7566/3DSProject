@@ -55,7 +55,7 @@ namespace eDocGenUI.Utils
                     }
                     json.Add(dtr.Table.Columns[i].ColumnName, dtr[dtr.Table.Columns[i]].ToString());
                 }
-                MessageBox.Show(await APIHelper.PostAPIAsync("SeteDocSpecInfo", json));
+                MessageBox.Show(await UI_APIHelper.PostAPIAsync("SeteDocSpecInfo", json));
             }
             else
             {

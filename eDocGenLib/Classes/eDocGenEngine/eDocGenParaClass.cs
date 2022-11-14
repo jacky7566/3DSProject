@@ -24,5 +24,6 @@ namespace eDocGenLib.Classes.eDocGenEngine
         public eDocAlertClass MailInfo { get; set; }
         public DateTime CreationStartTime { get; set; }
         public string GradingSpecFilePath { get; set; }
+        public bool ExcludeGradingResult { get; set; }
     }
 }

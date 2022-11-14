@@ -20,12 +20,15 @@ namespace DataIngestionEngine.Utils
     public class AVI2IngestionUtil
     {
         private static eDocGenParaClass _eDocGenParaClass;
-        public static string RW_Wafer_Id;
-        public static string Wafer_Id;
+        //public static string RW_Wafer_Id;
+        //public static string _Wafer_Id;
+        private static Guid _headerId;
         private static IConfiguration _config;
         private static ILogger _logger;
         private static string _inputFilePath;
         private static IDbConnection _sqlConn;
+        public static string _FailedOutputPath;
+        private static List<eDocConfigClass> _eDocConfigList;
         public AVI2IngestionUtil(IConfiguration config, ILogger logger)
         {
             _config = config;
@@ -39,6 +42,45 @@ namespace DataIngestionEngine.Utils
             _inputFilePath = file.FullName;
             _logger.Info(string.Format("Import file to Raw Data Table: {0}", file.Name));
             return ExtractTextFileAsync().Result;
+        }
+
+        public static bool GetEDocConfigList()
+        {
+            _eDocConfigList = new List<eDocConfigClass>();
+            try
+            {
+                _eDocConfigList = ConnectionHelper.GetEDocConfigList(_config);
+
+                if (_eDocConfigList.Count == 0)
+                {
+                    _logger.Warn(string.Format("GetEDocConfigList - No data found! Server Name: {0}", Environment.MachineName));
+                }
+                else return true;
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+            return false;
+        }
+
+        private static string GetEDocConfigValue(string configType, string configKey)
+        {
+            string res = string.Empty;
+            try
+            {
+                var config = _eDocConfigList.Where(r=> r.ConfigType == configType && r.ConfigKey == configKey).ToList();
+                if (config != null && config.Any())
+                {
+                    res = config.FirstOrDefault().ConfigValue;
+                }
+            }
+            catch (Exception)
+            {
+
+                throw;
+            }
+            return res;
         }
 
         private static async Task<bool> ExtractTextFileAsync()
@@ -65,8 +107,7 @@ namespace DataIngestionEngine.Utils
                         {
                             if (i == 0 && values[0] == "Wafer ID")
                             {
-                                //Create First HeaderInfo
-                                
+                                //Create First HeaderInfo                                
                                 BuildAndAddNewHeaderInfo(ref headerList, string.Empty);
                                 headerList.LastOrDefault().RW_Wafer_Id = values[1].ToString();
                                 _eDocGenParaClass.HeaderInfo.RW_Wafer_Id = values[1].ToString(); //20220913 Jacky added For API usage
@@ -105,31 +146,39 @@ namespace DataIngestionEngine.Utils
                         }
                     }
 
-                    if (headerList != null && headerList.Count() > 0)
+                    bool isCleaned = await CleanUpOldData(headerList);
+                    if (isCleaned && headerList != null && headerList.Count() > 0)
                     {
                         //Check Coordinate duplication
                         errorSB.Append(CheckiGxiGyIsDuplicate(bodyList));
                         errorSB.Append(CheckoGxoGyIsDuplicate(bodyList));
                         //Check 2DBC Control
                         errorSB.Append(Check2DBCControl(bodyList, new FileInfo(_inputFilePath).Name));
+                        //20221107 Detections of horizontal and vertical lines on AOI2 bin maps
+                        errorSB.Append(CheckAOI2ContBincode(bodyList));
 
                         if (errorSB.Length > 0)
                         {
                             MailHelper mail = new MailHelper(_config);
                             var rwId = headerList.FirstOrDefault().RW_Wafer_Id;
-                            var subject = "eDoc Ingestion Alert - RW Wafer Id: " + rwId;
+                            var subject = string.Format("{0} - RW Wafer Id: {1}", _config["MailSettings:mailTitle"].ToString(), rwId);
                             var content = string.Format("RW_Wafer_Id: {0} <BR> Error Message:<BR><BR>{1}", rwId, errorSB.ToString()).Replace("\n\r", "<BR>");
-                            mail.SendMail(string.Empty, new List<string>() { "jacky.li@lumentum.com" }, subject, content, true);
+                            var receivers = _config["MailSettings:receiveMails"].ToString().Split(",").ToList();
+                            mail.SendMail(string.Empty, receivers, subject, content, true);
                             _eDocGenParaClass.MailInfo = new eDocAlertClass();
                             _eDocGenParaClass.MailInfo.Subject = subject; //20220913 Jacky added For API usage
                             _eDocGenParaClass.MailInfo.Content = content; //20220913 Jacky added For API usage
                             CallAPI(errorSB.ToString());
+                            _FailedOutputPath = GetEDocConfigValue("Output", "Error"); //2DBC Failed Path
                             return false;
                         }
                         if (await ImportToHeaderInfoAsync(headerList))
                         {
                             //return await ImportToBodyAsync(bodyList);                            
-                            return BatchInsert(bodyList, "Tbl_AVI2_RawData");
+                            var ingested = BatchInsert(bodyList, "Tbl_AVI2_RawData");
+                            if (ingested)
+                                _FailedOutputPath = "";
+                            return true;
                         };
                     }
                 }
@@ -143,19 +192,38 @@ namespace DataIngestionEngine.Utils
             return false;
         }
 
+
+        //2022/10/28 Added function to update failed copy file
+        public static void UpdateFailedHeader(string filePath)
+        {
+            try
+            {
+                string sql = string.Format(@"Update TBL_Traceability_Info Set Status = 0, LastUpdatedDate = getdate(), FilePath = '{0}'
+                                        WHERE Id = '{1}' ", filePath, _headerId.ToString());
+
+                _logger.Error("UpdateFailedHeader - SQL: " + sql);
+                _sqlConn.Execute(sql);
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
         private static void BuildAndAddNewHeaderInfo(ref List<Traceability_InfoClass> headerList, string waferId)
         {
             var filePath = FileDetectUtil._IngestedPath + Path.DirectorySeparatorChar + new FileInfo(_inputFilePath).Name;
             var isMove = _config["Configurations:IsMoveToIngestedFolder"];
             if (isMove == "N")
                 filePath = _inputFilePath;
+
+            _headerId = Guid.NewGuid();
             headerList.Add(new Traceability_InfoClass()
             {
                 Wafer_Id = waferId,
                 FilePath = filePath,
                 FileType = "AVI2",
                 Status = 1,
-                Id = Guid.NewGuid(),
+                Id = _headerId,
                 CreatedBy = Environment.MachineName,
                 LastUpdatedBy = Environment.MachineName,
                 CreatedDate = DateTime.Now,
@@ -194,16 +262,46 @@ namespace DataIngestionEngine.Utils
             }
 
         }
-        private static async Task<bool> ImportToHeaderInfoAsync(List<Traceability_InfoClass> headerList) 
+        
+        private static async Task<bool> CleanUpOldData(List<Traceability_InfoClass> headerList)
+        {
+            bool isCleaned = false;
+            try
+            {
+                var commandTimeout = int.Parse(_config["Configurations:SQL_CommandTimeout"].ToString());
+                //Remove exists Header data
+                string sql = string.Format("Update TBL_Traceability_Info Set Status = 0, LastUpdatedDate = getdate() WHERE RW_Wafer_Id in ('{0}')",
+                    string.Join("','", headerList.Select(r => r.RW_Wafer_Id)));
+
+                _sqlConn.Execute(sql, null, null, commandTimeout);
+
+                //Remove old avi2 data
+                sql = string.Format("Delete From Tbl_AVI2_RawData WHERE RW_Wafer_Id = '{0}' ",
+                    headerList.FirstOrDefault().RW_Wafer_Id);
+
+                _sqlConn.Execute(sql, null, null, commandTimeout);
+
+                isCleaned = true;
+            }
+            catch (Exception)
+            {
+
+                throw;
+            }
+            return isCleaned;
+        }
+
+        private static async Task<bool> ImportToHeaderInfoAsync(List<Traceability_InfoClass> headerList)
         {
             //Insert Header Info by List
             try
             {
+                var commandTimeout = int.Parse(_config["Configurations:SQL_CommandTimeout"].ToString());
                 //Remove exists Header data
-                string sql = string.Format("Update TBL_Traceability_Info Set Status = 0, LastUpdatedDate = getdate() WHERE RW_Wafer_Id in ('{0}')",
-                    String.Join("','", headerList.Select(r => r.RW_Wafer_Id)));
+                //string sql = string.Format("Update TBL_Traceability_Info Set Status = 0, LastUpdatedDate = getdate() WHERE RW_Wafer_Id in ('{0}')",
+                //    String.Join("','", headerList.Select(r => r.RW_Wafer_Id)));
 
-                _sqlConn.Execute(sql);
+                //_sqlConn.Execute(sql, null, null, commandTimeout);
 
                 _logger.Info("Start BulkInsert Traceability Info, total count: " + headerList.Count);
                 var res = await _sqlConn.BulkInsert(
@@ -241,11 +339,12 @@ namespace DataIngestionEngine.Utils
             //Insert Header Info by List
             try
             {
+                var commandTimeout = int.Parse(_config["Configurations:SQL_CommandTimeout"].ToString());
                 //Remove exists UMC data
-                string sql = string.Format("Delete From Tbl_AVI2_RawData WHERE RW_Wafer_Id = '{0}' ",
-                    bodyList.FirstOrDefault().RW_Wafer_Id);
+                //string sql = string.Format("Delete From Tbl_AVI2_RawData WHERE RW_Wafer_Id = '{0}' ",
+                //    bodyList.FirstOrDefault().RW_Wafer_Id);
 
-                _sqlConn.Execute(sql);
+                //_sqlConn.Execute(sql, null, null, commandTimeout);
 
                 _logger.Info("Start BulkInsert Tbl_AVI2_RawData, total count: " + bodyList.Count);
                 var res = await _sqlConn.BulkInsert(
@@ -308,7 +407,7 @@ namespace DataIngestionEngine.Utils
                     _logger.Info("Start BulkInsert Tbl_AVI2_RawData, total count: " + exeuteResult);
                     if (exeuteResult > 0) return true;
                 }
-                
+
             }
             catch (Exception)
             {
@@ -323,10 +422,12 @@ namespace DataIngestionEngine.Utils
         {
             try
             {
+                var commandTimeout = int.Parse(_config["Configurations:SQL_CommandTimeout"].ToString());
+
                 string sql = string.Format("Delete From Tbl_AVI2_RawData WHERE RW_Wafer_Id = '{0}' ",
                     bodyList.FirstOrDefault().RW_Wafer_Id);
 
-                _sqlConn.Execute(sql);
+                _sqlConn.Execute(sql, null, null, commandTimeout);
 
                 var dt = IOHelper.ConvertToDataTableWithType(bodyList);
 
@@ -391,6 +492,169 @@ namespace DataIngestionEngine.Utils
             return sql;
         }
 
+        private static string CheckAOI2ContBincode(List<AVI2_RawDataClass> bodyList)
+        {
+            string result = string.Empty;
+            try
+            {
+                string avi2FileName = new FileInfo(_inputFilePath).Name;                
+                var isContMask = IsAOI2ContMask(bodyList.FirstOrDefault().Wafer_Id.Substring(0, 5));
+                if (isContMask == false) //If not in control mask, then return
+                    return result;
+                var configList = GetEDocConfigList(bodyList.FirstOrDefault().Wafer_Id.Substring(0, 5));
+                if (configList != null && configList.Count() > 0)
+                {
+                    var byPassConfigs = configList.Where(r => r.ConfigKey == "AOI2ContByPassKey").FirstOrDefault();
+                    var controlMasks = configList.Where(r => r.ConfigType == "Spec" && r.ConfigKey == "");
+                    if (byPassConfigs == null) 
+                        return result;
+                    if (avi2FileName.ToUpper().Contains(byPassConfigs.ConfigValue.ToUpper()) == false)
+                    {
+                        result = DetectHorVerContinuousAOIFails(bodyList);
+                    }
+                }
+            }
+            catch (Exception)
+            {
+
+                throw;
+            }
+            return result;
+        }
+
+        private static string DetectHorVerContinuousAOIFails(List<AVI2_RawDataClass> bodyList)
+        {
+            StringBuilder sb = new StringBuilder();
+            string errorContent = string.Empty;            
+            
+            try
+            {
+                var greaterCond = _config["AOI2_Detector:HOR_VER_BIN_GREATER"].ToString();
+                var excludeCond = _config["AOI2_Detector:HOR_VER_BIN_EXCLUDE"].ToString();                
+
+                //Order By Gy
+                var aoi2GyList = (from item in bodyList
+                                where item.Wafer_Id != "Fiducial" 
+                                && int.Parse(item.Bin_AOI2) >= int.Parse(greaterCond)
+                                && excludeCond.Contains(item.Bin_AOI2) == false
+                                  select item).ToList().OrderBy(r=> int.Parse(r.IGx)).OrderBy(r => int.Parse(r.IGy)).ToList();
+
+                errorContent = CheckCordinateHasNeighbor(aoi2GyList, "IGy", "IGx");
+                if (string.IsNullOrEmpty(errorContent) == false)
+                    sb.AppendLine(errorContent);
+
+                //Order By Gx
+                var aoi2GxList = (from item in bodyList
+                                  where item.Wafer_Id != "Fiducial"
+                                && int.Parse(item.Bin_AOI2) >= int.Parse(greaterCond)
+                                && excludeCond.Contains(item.Bin_AOI2) == false
+                                  select item).ToList().OrderBy(r => int.Parse(r.IGy)).OrderBy(r => int.Parse(r.IGx)).ToList();
+
+                errorContent = CheckCordinateHasNeighbor(aoi2GxList, "IGx", "IGy");
+                if (string.IsNullOrEmpty(errorContent) == false)
+                    sb.AppendLine(errorContent);
+
+                if (sb.Length > 0)
+                {
+                    var failedReportPath = Path.Combine(GetEDocConfigValue("Output", "OOS"), "ConsecutiveReport");
+                    sb.Insert(0, "filename,inputwafer,igx,igy,rw_wafer_id,ogx,ogy,binaoi2" + Environment.NewLine);
+
+                    if (CreateConsecutiveReport(sb.ToString(), failedReportPath))
+                    {
+                        return string.Format(@"The given RWID:{0} consecutive report has succefully been created!<BR>
+                        Please check the detail from folder: {1}. ",
+                            _eDocGenParaClass.HeaderInfo.RW_Wafer_Id, failedReportPath);
+                    }
+                    else
+                        return string.Format(@"The given RWID:{0} consecutive report has some error during creation!<BR>
+                        Please check the detail from folder: {1}. ",
+                            _eDocGenParaClass.HeaderInfo.RW_Wafer_Id, failedReportPath);
+                }
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+
+            return string.Empty;
+        }
+
+        private static string CheckCordinateHasNeighbor(List<AVI2_RawDataClass> list, string groupCol, string sortCol)
+        {
+            List<List<AVI2_RawDataClass>> resultList = new List<List<AVI2_RawDataClass>>();
+            List<AVI2_RawDataClass> tempRawList = new List<AVI2_RawDataClass>();
+            StringBuilder sb = new StringBuilder();
+            try
+            {
+                string avi2FileName = new FileInfo(_inputFilePath).Name;
+                string fileName = new FileInfo(_inputFilePath).Name;
+                var limitCnt = int.Parse(_config["AOI2_Detector:LIMIT"].ToString());
+
+                //Check X/Y Consecutive Defect
+                var contList = list.GroupBy(r => r.GetType().GetProperty(groupCol).GetValue(r))
+                    .ToDictionary(o => o.Key, o => o.ToList())
+                    .Where(r => r.Value.Count() > limitCnt).ToList();
+                
+                foreach (var kvp in contList)
+                {
+                    //Group by x,y to get consecutive fail bin code
+                    var nums = kvp.Value.Select(r => 
+                    int.Parse(r.GetType().GetProperty(sortCol).GetValue(r).ToString()))
+                        .OrderBy(r => r).ToArray();
+                    tempRawList = new List<AVI2_RawDataClass>();
+                    for (int i = 0; i < nums.Length; i++)
+                    {                        
+                        if (i > 0 && nums[i] - nums[i - 1] != 1) //Not consecutive then create new list
+                        {
+                            if (tempRawList.Count() > limitCnt)
+                                resultList.Add(tempRawList);
+                            tempRawList = new List<AVI2_RawDataClass>();
+                        }
+                        //Collect consecutive coordinate
+                        tempRawList.Add(kvp.Value[i]);
+                    }
+                }
+
+                foreach (var rwList in resultList)
+                {
+                    foreach (var item in rwList)
+                    {
+                        sb.Append(string.Format("{0},{1},{2},{3},{4},{5},{6},{7}",
+                            avi2FileName, item.Wafer_Id, item.IGx, item.IGy, item.RW_Wafer_Id, item.OGx, item.OGy, item.Bin_AOI2));
+                        sb.AppendLine();
+                    }
+                }
+            }
+            catch (Exception)
+            {
+
+                throw;
+            }
+            return sb.ToString();
+        }
+
+        private static bool CreateConsecutiveReport(string content, string failedReportPath)
+        {
+            bool isSuccess = false;
+            try
+            { 
+                var fileName = string.Format(@"{0}_AOI2ConsecutiveResult_{1}.csv",
+                    _eDocGenParaClass.HeaderInfo.RW_Wafer_Id, DateTime.Now.ToString("yyyyMMddHHmm"));
+                if (Directory.Exists(failedReportPath) == false)
+                    Directory.CreateDirectory(failedReportPath);
+                failedReportPath = Path.Combine(failedReportPath, fileName);
+                File.WriteAllText(failedReportPath, content);
+                if (File.Exists(failedReportPath))
+                    isSuccess = true;
+            }
+            catch (Exception)
+            {
+
+                throw;
+            }
+            return isSuccess;
+        }
+
         private static string CheckiGxiGyIsDuplicate(List<AVI2_RawDataClass> bodyList)
         {
             StringBuilder sb = new StringBuilder();
@@ -417,7 +681,7 @@ namespace DataIngestionEngine.Utils
 
                 throw;
             }
-            
+
             return sb.ToString();
         }
 
@@ -473,7 +737,7 @@ namespace DataIngestionEngine.Utils
                             var bincodes = configs[0].Split(',').ToList();
                             var percentage = configs[1].ToString();
                             var avi2CtrlBins = bodyList.Where(r => bincodes.Contains(r.Bin_AOI2)).Count().ToString();
-                            var avi2Bins = bodyList.Where(r=> r.Wafer_Id != "Fiducial").Select(r => r.Bin_AOI2).Count().ToString();
+                            var avi2Bins = bodyList.Where(r => r.Wafer_Id != "Fiducial").Select(r => r.Bin_AOI2).Count().ToString();
                             var curPer = Math.Round((double.Parse(avi2CtrlBins) / double.Parse(avi2Bins)) * 100, 2);
                             var ctrlPer = 0.0;
                             double.TryParse(percentage, out ctrlPer);
@@ -484,7 +748,8 @@ namespace DataIngestionEngine.Utils
                         }
                         else
                         {
-                            sb.AppendFormat("Mask: {0} 2DBC Configuration failed! Config Value: {1}", Wafer_Id.Substring(0, 5), configList.FirstOrDefault().ConfigValue);
+                            sb.AppendFormat("Mask: {0} 2DBC Configuration failed! Config Value: {1}",
+                                bodyList.FirstOrDefault().Wafer_Id.Substring(0, 5), configList.FirstOrDefault().ConfigValue);
                         }
                     }
                 }
@@ -506,9 +771,14 @@ namespace DataIngestionEngine.Utils
 
             try
             {
+                var machineName = Environment.MachineName;
+                if (_config["ServerName"] != null && string.IsNullOrEmpty(_config["ServerName"].ToString()) == false)
+                {
+                    machineName = _config["ServerName"].ToString();
+                }
                 string sql = string.Format(@"select * from [dbo].[TBL_eDoc_Config] 
                                     where ServerName = '{0}' and ConfigType = '{1}_Config' and ProductType = 'MP'",
-                        Environment.MachineName, mask);
+                        machineName, mask);
 
                 list = _sqlConn.Query<eDocConfigClass>(sql).ToList();
             }
@@ -520,8 +790,39 @@ namespace DataIngestionEngine.Utils
             return list;
         }
 
+        private static bool IsAOI2ContMask(string mask)
+        {
+            bool flag = false;
+
+            try
+            {
+                var machineName = Environment.MachineName;
+                if (_config["ServerName"] != null && string.IsNullOrEmpty(_config["ServerName"].ToString()) == false)
+                {
+                    machineName = _config["ServerName"].ToString();
+                }
+                string sql = string.Format(@"select * from [dbo].[TBL_eDoc_Config] 
+                                    where ServerName = '{0}' and ConfigType = 'Spec' 
+                                    and ConfigKey = 'AOI2ContMasks' and ProductType = 'MP'", machineName);
+
+                var list = _sqlConn.Query<eDocConfigClass>(sql).ToList();
+                if (list.Any())
+                {
+                    var contMasks = list.FirstOrDefault().ConfigValue.Split(";");
+                    if (contMasks.Contains(mask))
+                        flag = true;
+                }
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+
+            return flag;
+        }
+
         private static void CallAPI(string errorMessage)
-        {            
+        {
             _eDocGenParaClass.GradingFileList = new List<string>();
             _eDocGenParaClass.AVI2FilePath = _inputFilePath;
             _eDocGenParaClass.GoodDieQty = 0;

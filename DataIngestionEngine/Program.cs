@@ -52,7 +52,13 @@ namespace DataIngestionEngine
             try
             {
                 //Get Configuration Info
-                var sql = string.Format("SELECT * FROM [TBL_eDoc_Config] Where ServerName = '{0}' ", Environment.MachineName);
+                var machineName = Environment.MachineName;
+                if (_config["ServerName"] != null && string.IsNullOrEmpty(_config["ServerName"].ToString()) == false)
+                {
+                    machineName = _config["ServerName"].ToString();
+                }
+
+                var sql = string.Format("SELECT * FROM [TBL_eDoc_Config] Where ServerName = '{0}' ", machineName);
                 _logger.Info(sql);
 
                 var list = _connHelper.QueryDataBySQL(sql);

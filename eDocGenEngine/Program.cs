@@ -52,7 +52,10 @@ namespace eDocGenEngine
                         }
                         eDocGenUtil.CreateEMapLog(eMapStatus, eDocGenUtil._EDocGlobVar.MailInfo.Subject);                        
                         eDocGenUtil.SendEDocAPI(eMapStatus, eDocGenUtil._EDocGlobVar.MailInfo.Subject);
-                        eDocGenUtil.UpdateTraceabilityInfo(eMapStatus, item, _retryLimitCount);
+                        if (eDocGenUtil.UpdateTraceabilityInfo(eMapStatus, item, _retryLimitCount) > 0 && eMapStatus == "Success")
+                        {
+                            eDocGenUtil.DeleteTBL_AVI2_RAW(item);
+                        };
                     }
                 }
             }
