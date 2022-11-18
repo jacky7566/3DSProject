@@ -611,8 +611,8 @@ namespace eDocGenEngine.Utils
             {
                 _EDocGlobVar.MailInfo.Subject = "Error while import Grading result file. Wafer Id: " 
                     + string.Join(",", gradePathList.Select(r => r.Wafer_ID).ToList());
-                _EDocGlobVar.MailInfo.Content = String.Format("Error while import Grading result file: {0}, Exception: {1}" ) 
-                    + string.Join(",", gradePathList.Select(r => r.GradeSumPath).ToList(), ex.Message);
+                _EDocGlobVar.MailInfo.Content = String.Format("Error while import Grading result file: {0}, Exception: {1}", 
+                    string.Join(",", gradePathList.Select(r => r.GradeSumPath)), ex.Message);
                 _EDocGlobVar.MailInfo.Level = 1;
             }
 
@@ -1328,6 +1328,7 @@ namespace eDocGenEngine.Utils
         private List<eDocBincodeMapClass> UpdateBinCodeAndRtnMap()
         {
             List<eDocBincodeMapClass> binCodeList = new List<eDocBincodeMapClass>();
+            List<eDocBincodeMapClass> specialBinCodeList = new List<eDocBincodeMapClass>();
             try
             {
                 var waferList = _EDocGlobVar.RWMapList.Where(r=> r.Wafer_Id != null && r.Wafer_Id != "Fiducial").Select(r => r.Wafer_Id).Distinct();
@@ -1341,9 +1342,8 @@ namespace eDocGenEngine.Utils
                     //IsSpidr (WD001/WD013)
                     //bool isSpidr = (mask == "WD001" || mask == "WD013") ? true : false;
 
-                    //Bincode maps for Special Fail BinCode
-                    var bincodeMaps = GetBinCodeMaps(wafer_Id.Substring(0, 5));
-                    binCodeList.AddRange(bincodeMaps);
+                    //Bincode maps for Special Fail BinCode (For Bin L usage)
+                    specialBinCodeList.AddRange(GetBinCodeMaps(wafer_Id.Substring(0, 5)));
                 }
 
                 foreach (var item in binCodeList)
@@ -1369,6 +1369,22 @@ namespace eDocGenEngine.Utils
                     BinCount = fidList.Count()
                 });
 
+                //Update Fail Die to eMp Bin X
+                var goodDieBins = binCodeList.Select(r => r.AOI_BinCode).Distinct().ToList();
+                var specialFailBins = specialBinCodeList.Select(r => r.AOI_BinCode).Distinct().ToList();
+                var failDieList = _EDocGlobVar.RWMapList.Where(r => r.Device != "Fiducial" && r.Bin_AOI2 != null
+                && goodDieBins.Contains(r.Bin_AOI2) == false && specialFailBins.Contains(r.Bin_AOI2) == false 
+                && r.Wafer_Id != null)
+                    .ToList();
+                failDieList.ForEach(r => r.EMap_BinCode = "X");
+                binCodeList.Add(new eDocBincodeMapClass()
+                {
+                    EMap_BinCode = "X",
+                    BinQuality = "Fail",
+                    BinDescription = "AVI Fail",
+                    BinCount = failDieList.Count()
+                });
+
                 //Update No Die Bin to eMap Bin W
                 var noDieList = _EDocGlobVar.RWMapList.Where(r => r.Device != "Fiducial" && r.Bin_AOI2 == null).ToList();
                 noDieList.ForEach(r => r.EMap_BinCode = "W");
@@ -1380,23 +1396,45 @@ namespace eDocGenEngine.Utils
                     BinCount = noDieList.Count()
                 });
 
-                //Update Fail Die to eMp Bin X
-                var goodDieBins = binCodeList.Select(r => r.AOI_BinCode).Distinct().ToList();
-                var failDieList = _EDocGlobVar.RWMapList.Where(r => r.Device != "Fiducial" && r.Bin_AOI2 != null
-                && goodDieBins.Contains(r.Bin_AOI2) == false && r.Wafer_Id != null)
-                    .ToList();
-                failDieList.ForEach(r=> r.EMap_BinCode = "X");
-                binCodeList.Add(new eDocBincodeMapClass()
+                //Add Special Bincode (ex: L)
+                //Seperate version 20221117 backup to avoid Shasta CR
+                //foreach (var item in specialBinCodeList)
+                //{
+                //    var specialBinList = _EDocGlobVar.RWMapList.Where(r => r.Bin_AOI2 == item.AOI_BinCode && r.Bin_AOI2 == item.AOI_BinCode);
+                //    if (specialBinList != null && specialBinList.Count() > 0)
+                //    {
+                //        specialBinList.ToList().ForEach(r => r.EMap_BinCode = item.EMap_BinCode);
+                //        binCodeList.Add(new eDocBincodeMapClass()
+                //        {
+                //            EMap_BinCode = item.EMap_BinCode,
+                //            BinQuality = item.BinQuality,
+                //            BinDescription = item.BinDescription,
+                //            BinCount = specialBinList.Count()
+                //        });
+                //    }
+                //}
+
+                //Add Special Bincode (ex: L) for grouped by same eMap Bin Code
+                var specialBinGroupList = specialBinCodeList.GroupBy(r => r.EMap_BinCode).ToDictionary(o => o.Key, o => o.ToList());
+                foreach (var item in specialBinGroupList)
                 {
-                    EMap_BinCode = "X",
-                    BinQuality = "Fail",
-                    BinDescription = "AVI Fail",
-                    BinCount = failDieList.Count()
-                });
+                    var groupedBins = item.Value.Select(r => r.AOI_BinCode).ToList();
+                    var specialBinList = _EDocGlobVar.RWMapList.Where(r => groupedBins.Contains(r.Bin_AOI2));
+                    if (specialBinList != null && specialBinList.Count() > 0)
+                    {
+                        specialBinList.ToList().ForEach(r => r.EMap_BinCode = item.Key); //Updated to grouped eMap bincode(ex: bin L)
+                        binCodeList.Add(new eDocBincodeMapClass()
+                        {
+                            EMap_BinCode = item.Key,
+                            BinQuality = item.Value.FirstOrDefault().BinQuality,
+                            BinDescription = string.Join(", ", item.Value.OrderBy(r=> r.AOI_BinCode).Select(r=> r.BinDescription).ToList()),
+                            BinCount = specialBinList.Count()
+                        });
+                    }
+                }
             }
             catch (Exception)
             {
-
                 throw;
             }
 
