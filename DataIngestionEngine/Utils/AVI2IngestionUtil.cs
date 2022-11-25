@@ -49,11 +49,11 @@ namespace DataIngestionEngine.Utils
             _eDocConfigList = new List<eDocConfigClass>();
             try
             {
-                _eDocConfigList = ConnectionHelper.GetEDocConfigList(_config);
+                _eDocConfigList = ConnectionHelper.GetEDocConfigList(_config, Program._MachineName);
 
                 if (_eDocConfigList.Count == 0)
                 {
-                    _logger.Warn(string.Format("GetEDocConfigList - No data found! Server Name: {0}", Environment.MachineName));
+                    _logger.Warn(string.Format("GetEDocConfigList - No data found! Server Name: {0}", Program._MachineName));
                 }
                 else return true;
             }
@@ -151,10 +151,13 @@ namespace DataIngestionEngine.Utils
                     {
                         //Check Coordinate duplication
                         errorSB.Append(CheckiGxiGyIsDuplicate(bodyList));
+                        if (errorSB.Length > 0) errorSB.Append("<BR>");
                         errorSB.Append(CheckoGxoGyIsDuplicate(bodyList));
                         //Check 2DBC Control
+                        if (errorSB.Length > 0) errorSB.Append("<BR>");
                         errorSB.Append(Check2DBCControl(bodyList, new FileInfo(_inputFilePath).Name));
                         //20221107 Detections of horizontal and vertical lines on AOI2 bin maps
+                        if (errorSB.Length > 0) errorSB.Append("<BR>");
                         errorSB.Append(CheckAOI2ContBincode(bodyList));
 
                         if (errorSB.Length > 0)
@@ -224,8 +227,8 @@ namespace DataIngestionEngine.Utils
                 FileType = "AVI2",
                 Status = 1,
                 Id = _headerId,
-                CreatedBy = Environment.MachineName,
-                LastUpdatedBy = Environment.MachineName,
+                CreatedBy = Program._MachineName,
+                LastUpdatedBy = Program._MachineName,
                 CreatedDate = DateTime.Now,
                 LastUpdatedDate = DateTime.Now,
                 RetryCount = 0
@@ -247,8 +250,8 @@ namespace DataIngestionEngine.Utils
                     OGx = values[6].ToString(),
                     OGy = values[7].ToString(),
                     Bin_AOI2 = values[8].ToString(),
-                    CreatedBy = Environment.MachineName,
-                    LastUpdatedBy = Environment.MachineName,
+                    CreatedBy = Program._MachineName,
+                    LastUpdatedBy = Program._MachineName,
                     CreatedDate = DateTime.Now,
                     LastUpdatedDate = DateTime.Now,
                     Traceability_Id = header.Id,
@@ -561,12 +564,12 @@ namespace DataIngestionEngine.Utils
 
                     if (CreateConsecutiveReport(sb.ToString(), failedReportPath))
                     {
-                        return string.Format(@"The given RWID:{0} consecutive report has succefully been created!<BR>
+                        return string.Format(@"<li>The given RWID:{0} consecutive report has succefully been created!<BR>
                         Please check the detail from folder: {1}. ",
                             _eDocGenParaClass.HeaderInfo.RW_Wafer_Id, failedReportPath);
                     }
                     else
-                        return string.Format(@"The given RWID:{0} consecutive report has some error during creation!<BR>
+                        return string.Format(@"<li>The given RWID:{0} consecutive report has some error during creation!<BR>
                         Please check the detail from folder: {1}. ",
                             _eDocGenParaClass.HeaderInfo.RW_Wafer_Id, failedReportPath);
                 }
@@ -743,12 +746,12 @@ namespace DataIngestionEngine.Utils
                             double.TryParse(percentage, out ctrlPer);
                             if (curPer > ctrlPer)
                             {
-                                sb.AppendFormat("2DBC OOS. Checking bincode:{0}, spec: {1}%, avi2:{2}% ({3}/{4})", configs[0], ctrlPer, curPer, avi2CtrlBins, avi2Bins);
+                                sb.AppendFormat("<li>2DBC OOS. Checking bincode:{0}, spec: {1}%, avi2:{2}% ({3}/{4}) ", configs[0], ctrlPer, curPer, avi2CtrlBins, avi2Bins);
                             }
                         }
                         else
                         {
-                            sb.AppendFormat("Mask: {0} 2DBC Configuration failed! Config Value: {1}",
+                            sb.AppendFormat("<li>Mask: {0} 2DBC Configuration failed! Config Value: {1}",
                                 bodyList.FirstOrDefault().Wafer_Id.Substring(0, 5), configList.FirstOrDefault().ConfigValue);
                         }
                     }
@@ -771,14 +774,9 @@ namespace DataIngestionEngine.Utils
 
             try
             {
-                var machineName = Environment.MachineName;
-                if (_config["ServerName"] != null && string.IsNullOrEmpty(_config["ServerName"].ToString()) == false)
-                {
-                    machineName = _config["ServerName"].ToString();
-                }
                 string sql = string.Format(@"select * from [dbo].[TBL_eDoc_Config] 
                                     where ServerName = '{0}' and ConfigType = '{1}_Config' and ProductType = 'MP'",
-                        machineName, mask);
+                        Program._MachineName, mask);
 
                 list = _sqlConn.Query<eDocConfigClass>(sql).ToList();
             }
@@ -796,14 +794,9 @@ namespace DataIngestionEngine.Utils
 
             try
             {
-                var machineName = Environment.MachineName;
-                if (_config["ServerName"] != null && string.IsNullOrEmpty(_config["ServerName"].ToString()) == false)
-                {
-                    machineName = _config["ServerName"].ToString();
-                }
                 string sql = string.Format(@"select * from [dbo].[TBL_eDoc_Config] 
                                     where ServerName = '{0}' and ConfigType = 'Spec' 
-                                    and ConfigKey = 'AOI2ContMasks' and ProductType = 'MP'", machineName);
+                                    and ConfigKey = 'AOI2ContMasks' and ProductType = 'MP'", Program._MachineName);
 
                 var list = _sqlConn.Query<eDocConfigClass>(sql).ToList();
                 if (list.Any())
@@ -829,7 +822,7 @@ namespace DataIngestionEngine.Utils
             _eDocGenParaClass.GradingSpecFilePath = "";
             _eDocGenParaClass.WaferTestHeader = new eDocWaferTestHeaderClass();
             APIHelper aPIHelper = new APIHelper(_config, _logger, _eDocGenParaClass);
-            aPIHelper.SendEDocAPI("Fail", errorMessage);
+            aPIHelper.SendEDocAPI("Fail", errorMessage, Program._MachineName);
         }
     }
 }

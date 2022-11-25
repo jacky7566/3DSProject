@@ -135,10 +135,11 @@ namespace eDocGenLib.Utils
             return dt;
         }
 
-        public static List<eDocConfigClass> GetEDocConfigList(IConfiguration _config)
+        public static List<eDocConfigClass> GetEDocConfigList(IConfiguration _config, string machineName)
         {
             var list = new List<eDocConfigClass>();
-            var sql = string.Format(@"select * from [dbo].[TBL_eDoc_Config] where ServerName = '{0}' ", Environment.MachineName);
+
+            var sql = string.Format(@"select * from [dbo].[TBL_eDoc_Config] where ServerName = '{0}' ", machineName);
             try
             {
                 using (var sqlConn = new SqlConnection(_config["ConnectionStrings:DefaultConnection"]))

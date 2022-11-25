@@ -14,12 +14,12 @@ namespace DataIngestionEngine
         static DataTable _configDt;
         static IConfiguration _config;
         static ILogger _logger;
+        public static string _MachineName;
 
         static void Main(string[] args)
         {
             Initial();
             ProcessStart();
-
         }
 
         static void Initial()
@@ -39,6 +39,13 @@ namespace DataIngestionEngine
 
                 _config = config;
                 _connHelper = new ConnectionHelper(config);
+
+                //Get Configuration Info
+                _MachineName = Environment.MachineName;
+                if (_config["ServerName"] != null && string.IsNullOrEmpty(_config["ServerName"].ToString()) == false)
+                {
+                    _MachineName = _config["ServerName"].ToString();
+                }
             }
             catch (Exception)
             {
@@ -51,14 +58,7 @@ namespace DataIngestionEngine
             _logger.Info("Process Start...");
             try
             {
-                //Get Configuration Info
-                var machineName = Environment.MachineName;
-                if (_config["ServerName"] != null && string.IsNullOrEmpty(_config["ServerName"].ToString()) == false)
-                {
-                    machineName = _config["ServerName"].ToString();
-                }
-
-                var sql = string.Format("SELECT * FROM [TBL_eDoc_Config] Where ServerName = '{0}' ", machineName);
+                var sql = string.Format("SELECT * FROM [TBL_eDoc_Config] Where ServerName = '{0}' ", _MachineName);
                 _logger.Info(sql);
 
                 var list = _connHelper.QueryDataBySQL(sql);

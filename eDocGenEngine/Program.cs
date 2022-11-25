@@ -16,6 +16,7 @@ namespace eDocGenEngine
         static ILogger _logger;
         static string _retryLimitCount;
         public static bool _isDebug;
+        public static string _MachineName;
 
         static void Main(string[] args)
         {
@@ -50,8 +51,11 @@ namespace eDocGenEngine
                             eDocGenUtil.SendAlertMail(item);
                             eMapStatus = "Fail";
                         }
-                        eDocGenUtil.CreateEMapLog(eMapStatus, eDocGenUtil._EDocGlobVar.MailInfo.Subject);                        
-                        eDocGenUtil.SendEDocAPI(eMapStatus, eDocGenUtil._EDocGlobVar.MailInfo.Subject);
+                        if (Program._isDebug == false)
+                            eDocGenUtil.CreateEMapLog(eMapStatus, eDocGenUtil._EDocGlobVar.MailInfo.Subject);                        
+                        eDocGenUtil.SendEDocAPI(eMapStatus,
+                            string.IsNullOrEmpty(eDocGenUtil._EDocGlobVar.MailInfo.Subject) 
+                            ? eDocGenUtil._EDocGlobVar.MailInfo.Content : eDocGenUtil._EDocGlobVar.MailInfo.Subject);
                         if (eDocGenUtil.UpdateTraceabilityInfo(eMapStatus, item, _retryLimitCount) > 0 && eMapStatus == "Success")
                         {
                             eDocGenUtil.DeleteTBL_AVI2_RAW(item);
@@ -84,6 +88,12 @@ namespace eDocGenEngine
 
                 _config = config;
                 _connHelper = new ConnectionHelper(config);
+
+                _MachineName = Environment.MachineName;
+                if (_config["ServerName"] != null && string.IsNullOrEmpty(_config["ServerName"].ToString()) == false)
+                {
+                    _MachineName = _config["ServerName"].ToString();
+                }
 
                 _isDebug = false;
                 bool.TryParse(_config["Configurations:IsDebug"].ToString(), out _isDebug);

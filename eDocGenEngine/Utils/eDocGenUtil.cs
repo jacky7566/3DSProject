@@ -41,9 +41,15 @@ namespace eDocGenEngine.Utils
 
         public List<Traceability_InfoClass> GetProcessList(string retryLimitCount)
         {
+            var machineName = Environment.MachineName;
+            if (_config["ServerName"] != null && string.IsNullOrEmpty(_config["ServerName"].ToString()) == false)
+            {
+                machineName = _config["ServerName"].ToString();
+            }
+
             var sql = string.Format(@"select * from [TBL_Traceability_Info] 
                         where status = 1 and retrycount < {0} and CreatedBy = '{1}' order by LastUpdatedDate asc",
-                        retryLimitCount, Environment.MachineName);
+                        retryLimitCount, machineName);
             _logger.Info(sql);
             try
             {
@@ -140,8 +146,8 @@ namespace eDocGenEngine.Utils
                 //Check ETData Shipment
                 //Connect to Oracle Database to get information from ShipmentDetail and Shipment Table
 
-                //CheckETDataStatus(header.Wafer_Id);
-                //if (string.IsNullOrEmpty(_EDocGenGlobalParas.ErrorMessage) == false) return false;
+                CheckETDataStatus(header.RW_Wafer_Id);
+                if (string.IsNullOrEmpty(_EDocGlobVar.MailInfo.Content) == false) return false;
                 //IdentifyAndUpdateUnknowWaferID???
 
                 //Get Wafer Test Header (SYL, CBP Version, Grading Version)
@@ -206,7 +212,7 @@ namespace eDocGenEngine.Utils
 
                     if (_EDocGlobVar.RWMapList.Count == 0)
                     {
-                        _EDocGlobVar.MailInfo.Content = "ProcessDeviceInfo - UMC data not found!";
+                        _EDocGlobVar.MailInfo.Content = String.Format("ProcessDeviceInfo - RW_WaferId: {0} UMC data not found!", header.RW_Wafer_Id);                        
                         _EDocGlobVar.MailInfo.Level = 1;
                         _logger.Info("ProcessDeviceInfo - UMC data found! SQL: " + sql);
                     }
@@ -274,6 +280,14 @@ namespace eDocGenEngine.Utils
                         }
                         return res;
                     }
+                    else
+                    {
+                        _EDocGlobVar.MailInfo.Subject = string.Format("Wafer_Id: {0} grading summary not found!",
+                            _EDocGlobVar.HeaderInfo.Wafer_Id);
+                        _EDocGlobVar.MailInfo.Content = string.Format("Wafer_Id: {0} grading summary not found! SQL: {1}"
+                            , _EDocGlobVar.HeaderInfo.Wafer_Id, sql);
+                        _EDocGlobVar.MailInfo.Level = 1;
+                    }
                 }
                 else
                 {
@@ -320,6 +334,7 @@ namespace eDocGenEngine.Utils
                                 }
                                 else
                                 {
+                                    _EDocGlobVar.MailInfo.Subject = "POR version not found for wafer:" + waferID;
                                     _EDocGlobVar.MailInfo.Content = "POR version not found for wafer:" + waferID;
                                     _EDocGlobVar.MailInfo.Level = 2;
                                 }
@@ -421,7 +436,8 @@ namespace eDocGenEngine.Utils
                         _logger.Info("Check SYLAbnormal...");
                         if (_EDocGlobVar.WaferTestHeader.syl.Equals("Fail"))
                         {
-                            _EDocGlobVar.MailInfo.Subject = string.Format("Wafer Id: {0} SYL abnormal", waferID);
+                            _EDocGlobVar.MailInfo.Subject = string.Format("Wafer Id: {0} SYL abnormal! Yield rate: {1}%", waferID,
+                                (Double.Parse(_EDocGlobVar.WaferTestHeader.wafer_test_yield) * 100).ToString("##.##"));
                             _EDocGlobVar.MailInfo.Content = string.Format("Wafer Id: {0} SYL abnormal! Yield rate: {1}%", waferID,
                                 (Double.Parse(_EDocGlobVar.WaferTestHeader.wafer_test_yield) * 100).ToString("##.##"));
                             _EDocGlobVar.MailInfo.Level = 2;
@@ -441,7 +457,8 @@ namespace eDocGenEngine.Utils
         {
             var sql = string.Format(@"select s.shipmentid from shipmentdetail sd
                             inner join shipment s on sd.shipmentid = s.shipmentid
-                            where sd. lotnumber = '{0}' and s.order_type not in ('Standard-314','Sample-314') ", rw_wafer_Id);
+                            where sd. lotnumber = '{0}' and s.order_type not in ('Standard-314','Sample-314') and s.status = 'TRANSMITTED' ",
+                            rw_wafer_Id);
 
             try
             {
@@ -462,6 +479,7 @@ namespace eDocGenEngine.Utils
                                 if (res != null && res.Count() > 0)
                                 {
                                     var shipmentId = res.ToList().FirstOrDefault();
+                                    _EDocGlobVar.MailInfo.Subject = string.Format("{0} already been Shipped to customer under shipment id: {1}", rw_wafer_Id, shipmentId);
                                     _EDocGlobVar.MailInfo.Content = string.Format("{0} already been Shipped to customer under shipment id: {1}", rw_wafer_Id, shipmentId);
                                     _EDocGlobVar.MailInfo.Level = 2;
                                 }
@@ -502,6 +520,7 @@ namespace eDocGenEngine.Utils
                                 }
                                 else
                                 {
+                                    _EDocGlobVar.MailInfo.Subject = string.Format("MCO data not found for wafer: {0}", waferID);
                                     _EDocGlobVar.MailInfo.Content = string.Format("MCO data not found for wafer: {0}", waferID);
                                     _EDocGlobVar.MailInfo.Level = 3;
                                 }
@@ -1104,11 +1123,11 @@ namespace eDocGenEngine.Utils
             _EDocGlobVar.EDocConfigList = new List<eDocConfigClass>();
             try
             {
-                _EDocGlobVar.EDocConfigList = ConnectionHelper.GetEDocConfigList(_config);
+                _EDocGlobVar.EDocConfigList = ConnectionHelper.GetEDocConfigList(_config, Program._MachineName);
 
                 if (_EDocGlobVar.EDocConfigList.Count == 0)
                 {
-                    _EDocGlobVar.MailInfo.Content = string.Format("GetEDocConfigList - No data found! Server Name: {0}", Environment.MachineName);
+                    _EDocGlobVar.MailInfo.Content = string.Format("GetEDocConfigList - No data found! Server Name: {0}", Program._MachineName);
                     _EDocGlobVar.MailInfo.Level = 1;
                 }
                 else return true;
@@ -1971,9 +1990,9 @@ namespace eDocGenEngine.Utils
                 {
                     if (_EDocGlobVar.MailInfo.Level == 1)
                         mainReceiver = SpecUtil._eDocInfoList.Where(r => r.Type == "EMAIL" && r.Key == "Lite IT email").FirstOrDefault()?.Value1;
-                    else if (_EDocGlobVar.MailInfo.Level == 1)
+                    else if (_EDocGlobVar.MailInfo.Level == 2)
                         mainReceiver = SpecUtil._eDocInfoList.Where(r => r.Type == "EMAIL" && r.Key == "To").FirstOrDefault()?.Value1;
-                    else if (_EDocGlobVar.MailInfo.Level == 1)
+                    else if (_EDocGlobVar.MailInfo.Level == 3)
                         mainReceiver = SpecUtil._eDocInfoList.Where(r => r.Type == "EMAIL" && r.Key == "Win Engineer email").FirstOrDefault()?.Value1;
                     else
                         mainReceiver = SpecUtil._eDocInfoList.Where(r => r.Type == "EMAIL" && r.Key == "cc").FirstOrDefault()?.Value1;
@@ -2063,7 +2082,7 @@ namespace eDocGenEngine.Utils
                 {
                     Level = "RW", Type = "eDoc", RW_Wafer_Id = _EDocGlobVar.HeaderInfo.RW_Wafer_Id,
                     Wafer_Id = _EDocGlobVar.HeaderInfo.Wafer_Id.Substring(0, 12), Status = 1,
-                    Created_By = Environment.MachineName
+                    Created_By = Program._MachineName
                 };
 
                 List<TBL_WAFER_RESUME_ITEM> wafer_item_list = new List<TBL_WAFER_RESUME_ITEM>();
@@ -2123,7 +2142,7 @@ namespace eDocGenEngine.Utils
                 //Success SQL
                 var sql = string.Format(@"Update [TBL_Traceability_Info] set status = 2, FilePath = '{0}',
                                         LastUpdatedBy = '{1}', LastUpdatedDate = GETDATE() where Id = '{2}'",
-                                        copyFilePath, Environment.MachineName, item.Id);
+                                        copyFilePath, Program._MachineName, item.Id);
                 if (eMapStatus == "Fail")
                 {
                     if (item.RetryCount == int.Parse(retryLimitCount) - 1)
@@ -2131,13 +2150,13 @@ namespace eDocGenEngine.Utils
                         //Success SQL Failed Over Limit
                         sql = string.Format(@"Update [TBL_Traceability_Info] set RetryCount = {0} + 1, status = 9, FilePath = '{1}',
                                             LastUpdatedBy = '{2}', LastUpdatedDate = GETDATE() where Id = '{3}'",
-                                            item.RetryCount, copyFilePath, Environment.MachineName, item.Id);
+                                            item.RetryCount, copyFilePath, Program._MachineName, item.Id);
                     }
                     else
                     {
                         //Success SQL Failed
                         sql = string.Format(@"Update [TBL_Traceability_Info] set RetryCount = {0} + 1, LastUpdatedBy = '{1}',
-                                            LastUpdatedDate = GETDATE() where Id = '{2}'", item.RetryCount, Environment.MachineName, item.Id);
+                                            LastUpdatedDate = GETDATE() where Id = '{2}'", item.RetryCount, Program._MachineName, item.Id);
                         isCopyFile = false;
                     }
                 }

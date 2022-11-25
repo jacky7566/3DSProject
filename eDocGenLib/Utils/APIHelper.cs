@@ -27,7 +27,7 @@ namespace eDocGenLib.Utils
             GetEDocConfigList();
         }
 
-        public void SendEDocAPI(string eMapStatus, string errorMessage)
+        public void SendEDocAPI(string eMapStatus, string errorMessage, string machineName)
         {
             try
             {
@@ -39,7 +39,7 @@ namespace eDocGenLib.Utils
                     RW_Wafer_Id = _EDocGlobVar.HeaderInfo.RW_Wafer_Id,
                     Wafer_Id = _EDocGlobVar.HeaderInfo.Wafer_Id.Substring(0, 12),
                     Status = 1,
-                    Created_By = Environment.MachineName
+                    Created_By = machineName
                 };
 
                 List<TBL_WAFER_RESUME_ITEM> wafer_item_list = new List<TBL_WAFER_RESUME_ITEM>();
@@ -91,7 +91,13 @@ namespace eDocGenLib.Utils
 
         private bool GetEDocConfigList()
         {
-            var sql = string.Format(@"select * from [dbo].[TBL_eDoc_Config] where ServerName = '{0}' ", Environment.MachineName);
+            var machineName = Environment.MachineName;
+            if (_config["ServerName"] != null && string.IsNullOrEmpty(_config["ServerName"].ToString()) == false)
+            {
+                machineName = _config["ServerName"].ToString();
+            }
+
+            var sql = string.Format(@"select * from [dbo].[TBL_eDoc_Config] where ServerName = '{0}' ", machineName);
             try
             {
                 using (var sqlConn = new SqlConnection(_config["ConnectionStrings:DefaultConnection"]))
@@ -101,7 +107,7 @@ namespace eDocGenLib.Utils
 
                 if (_EDocGlobVar.EDocConfigList.Count == 0)
                 {
-                    _EDocGlobVar.MailInfo.Content = string.Format("GetEDocConfigList - No data found! Server Name: {0}", Environment.MachineName);
+                    _EDocGlobVar.MailInfo.Content = string.Format("GetEDocConfigList - No data found! Server Name: {0}", machineName);
                     _EDocGlobVar.MailInfo.Level = 1;
                 }
                 else return true;

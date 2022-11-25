@@ -128,7 +128,6 @@ namespace eDocGenUI
             // 
             this._esUplCmb.FormattingEnabled = true;
             this._esUplCmb.Items.AddRange(new object[] {
-            "\\\\tw2smbl1.lumentuminc.net\\Data\\Data\\eDocTest\\AVI2\\vi2",
             "\\\\tw2smbl1.lumentuminc.net\\Data\\Data\\RW_Map\\AVI2",
             "\\\\tw2smbl1.lumentuminc.net\\Data\\Data\\RW_Map\\AVI2_SPECIAL"});
             this._esUplCmb.Location = new System.Drawing.Point(118, 609);
