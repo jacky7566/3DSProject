@@ -559,19 +559,22 @@ namespace DataIngestionEngine.Utils
 
                 if (sb.Length > 0)
                 {
-                    var failedReportPath = Path.Combine(GetEDocConfigValue("Output", "OOS"), "ConsecutiveReport");
+                    var failedReportPath = Path.Combine(GetEDocConfigValue("Output", "OOS"),
+                        "ConsecutiveReport", DateTime.Now.ToString("yyyyMMdd"));
                     sb.Insert(0, "filename,inputwafer,igx,igy,rw_wafer_id,ogx,ogy,binaoi2" + Environment.NewLine);
 
                     if (CreateConsecutiveReport(sb.ToString(), failedReportPath))
                     {
                         return string.Format(@"<li>The given RWID:{0} consecutive report has succefully been created!<BR>
-                        Please check the detail from folder: {1}. ",
-                            _eDocGenParaClass.HeaderInfo.RW_Wafer_Id, failedReportPath);
+                        Please check the detail from folder: {1}. 
+                        <BR><li>System have detected the bin code greater than {2} and excludes the bin codes {3}",
+                            _eDocGenParaClass.HeaderInfo.RW_Wafer_Id, failedReportPath, greaterCond, excludeCond);
                     }
                     else
                         return string.Format(@"<li>The given RWID:{0} consecutive report has some error during creation!<BR>
-                        Please check the detail from folder: {1}. ",
-                            _eDocGenParaClass.HeaderInfo.RW_Wafer_Id, failedReportPath);
+                        Please check the detail from folder: {1}. 
+                        <BR><li>System have detected the bin code greater than {2} and excludes the bin codes {3}",
+                            _eDocGenParaClass.HeaderInfo.RW_Wafer_Id, failedReportPath, greaterCond, excludeCond);
                 }
             }
             catch (Exception)
