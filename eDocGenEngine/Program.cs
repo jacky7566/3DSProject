@@ -51,8 +51,7 @@ namespace eDocGenEngine
                             eDocGenUtil.SendAlertMail(item);
                             eMapStatus = "Fail";
                         }
-                        if (Program._isDebug == false)
-                            eDocGenUtil.CreateEMapLog(eMapStatus, eDocGenUtil._EDocGlobVar.MailInfo.Subject);                        
+                        eDocGenUtil.CreateEMapLog(eMapStatus, eDocGenUtil._EDocGlobVar.MailInfo.Subject);                        
                         eDocGenUtil.SendEDocAPI(eMapStatus,
                             string.IsNullOrEmpty(eDocGenUtil._EDocGlobVar.MailInfo.Subject) 
                             ? eDocGenUtil._EDocGlobVar.MailInfo.Content : eDocGenUtil._EDocGlobVar.MailInfo.Subject);

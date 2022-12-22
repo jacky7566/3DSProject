@@ -263,5 +263,27 @@ namespace eDocGenEngine.Utils
             }
             return null;
         }
+
+        public bool IsTurboMask(string mask)
+        {
+            bool isTurbo = false;
+            try
+            {
+                var isTurboConfig = eDocGenUtil._EDocGlobVar.EDocConfigList
+                    .Where(r => r.ConfigKey == "IsTurbo" && r.ConfigType == mask + "_Config");
+                if (isTurboConfig != null && isTurboConfig.Any())
+                {
+                    if (isTurboConfig.FirstOrDefault().ConfigValue == "Y")
+                        isTurbo = true;
+                }
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+
+            return isTurbo;
+        }
+
     }
 }

@@ -41,7 +41,7 @@ namespace eDocGenAPI.Controllers
                   es.Id, es.UMCFileName, es.EMapVersion 
                   from [centralize_prod].[dbo].tbl_group_mask_map gm
                   inner join [centralize_prod].[dbo].tbl_spec sp on gm.mask = SUBSTRING(sp.spec_filename, 1, 5)
-                  left join [eDoc_Dev].[dbo].TBL_eDoc_Spec es on gm.mask = es.Mask
+                  left join [eDoc_Prod].[dbo].TBL_eDoc_Spec es on gm.mask = es.Mask
                   where sp.status_id = 2 and gm.group_id = '{0}'
                   order by spec_filename desc ", groupName);
 

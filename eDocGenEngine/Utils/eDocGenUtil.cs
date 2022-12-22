@@ -20,6 +20,7 @@ using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using OfficeOpenXml.FormulaParsing.ExpressionGraph;
 
 namespace eDocGenEngine.Utils
 {
@@ -115,6 +116,9 @@ namespace eDocGenEngine.Utils
 
             try
             {
+                //20221219 Check Is Turbo Mask
+                _EDocGlobVar.IsTurboMask = specUtil.IsTurboMask(header.Wafer_Id.Substring(0, 5));
+
                 //Get eDoc Spec
                 specUtil.GetEDocSpec(header.Wafer_Id.Substring(0, 5));
                 if (string.IsNullOrEmpty(_EDocGlobVar.MailInfo.Content) == false)
@@ -198,25 +202,55 @@ namespace eDocGenEngine.Utils
         private bool ProcessDeviceInfo(Traceability_InfoClass header)
         {
             ConnectionHelper connectionHelper = new ConnectionHelper(_config);
-            var sql = string.Format(@"SELECT rw.No, rw.Wafer_Id, rw.RW_Wafer_Id, rw.IGx, rw.IGy, rw.Bin_AOI1, dm.OGx, dm.OGy, rw.Bin_AOI2, dm.Device, rw.Line_Data, '' EMap_BinCode
-                                from TBL_RW_Dimension dm
-                                left join (SELECT * from TBL_AVI2_RawData Where rw_wafer_id = '{0}') rw on rw.OGx = dm.Ogx and rw.OGy = dm.Ogy
-                                Where dm.Product = '{1}'
-                                order by rw.No asc ", header.RW_Wafer_Id, header.Wafer_Id.Substring(0, 5));
 
             try
             {
+                //Mask Id
+                var mask = header.Wafer_Id.Substring(0, 5);
+                //Get Has UMS Flag
+                var hasUMCConfig = _EDocGlobVar.EDocConfigList.Where(r => r.ConfigKey == "HasUMC" && r.ConfigType == mask + "_Config");
+
+                var sql = string.Format(@"SELECT rw.No, rw.Wafer_Id, rw.RW_Wafer_Id, rw.IGx, rw.IGy, rw.Bin_AOI1, dm.OGx, dm.OGy, rw.Bin_AOI2, dm.Device, rw.Line_Data, '' EMap_BinCode
+                                from TBL_RW_Dimension dm
+                                left join (SELECT * from TBL_AVI2_RawData Where rw_wafer_id = '{0}') rw on rw.OGx = dm.Ogx and rw.OGy = dm.Ogy
+                                Where dm.Product = '{1}'
+                                order by rw.No asc ", header.RW_Wafer_Id, mask);
+
+                if (hasUMCConfig != null && hasUMCConfig.Any())
+                {
+                    if (hasUMCConfig.FirstOrDefault().ConfigValue == "N")
+                    {
+                        sql = string.Format(@"select rw.No, rw.Wafer_Id, rw.RW_Wafer_Id, rw.IGx, rw.IGy, rw.Bin_AOI1, rw.OGx, rw.OGy, rw.Bin_AOI2, '' Device, rw.Line_Data, '' EMap_BinCode 
+                                            from TBL_AVI2_RawData rw where rw.RW_Wafer_Id = '{0}'
+                                            order by rw.No asc", header.RW_Wafer_Id);
+                    }
+                }
+
                 using (var sqlConn = new SqlConnection(_config["ConnectionStrings:DefaultConnection"]))
                 {
                     _EDocGlobVar.RWMapList = sqlConn.Query<eDocRWMapClass>(sql).ToList();
 
                     if (_EDocGlobVar.RWMapList.Count == 0)
                     {
-                        _EDocGlobVar.MailInfo.Content = String.Format("ProcessDeviceInfo - RW_WaferId: {0} UMC data not found!", header.RW_Wafer_Id);                        
+                        _EDocGlobVar.MailInfo.Content = String.Format("ProcessDeviceInfo - RW_WaferId: {0} UMC data not found!", header.RW_Wafer_Id);
                         _EDocGlobVar.MailInfo.Level = 1;
                         _logger.Info("ProcessDeviceInfo - UMC data found! SQL: " + sql);
                     }
-                    else return true;
+                    else
+                    {
+                        if (_EDocGlobVar.IsTurboMask)
+                        {
+                            //Check Channel Info 20221219 for Turbo
+                            int channel = 1;
+                            int.TryParse(_EDocGlobVar.HeaderInfo.RW_Wafer_Id.Substring(2, 1), out channel);
+                            foreach (var item in _EDocGlobVar.RWMapList)
+                            {
+                                if (int.TryParse(item.IGx, out _))
+                                    item.IGx = (int.Parse(item.IGx) * channel).ToString();
+                            }
+                        }
+                        return true;
+                    }
                 }
             }
             catch (Exception)
@@ -871,6 +905,9 @@ namespace eDocGenEngine.Utils
                     eDocConfig = _EDocGlobVar.EDocConfigList.Where(r => r.ConfigKey == "EMAP_TMAP_COC_Config" && r.ConfigType == "Default_Config");
                 }
                 var configArry = eDocConfig.FirstOrDefault().ConfigValue.Split(";");
+
+                //Update BinCode 2022/12/19 Move update bincode function from CreateEMAP to prior for Turbo support
+                var binCodeMap = UpdateBinCodeAndRtnMap();
                 //eMap
                 if (YNParser(configArry[0]))
                 {
@@ -882,7 +919,7 @@ namespace eDocGenEngine.Utils
                     }
                     if (string.IsNullOrEmpty(_EDocGlobVar.EMapVersion))
                         _EDocGlobVar.EMapVersion = _config["Configurations:DefaultEMapVersion"];
-                    CreateEMAP();
+                    CreateEMAP(binCodeMap);
                     //Whether to check good die qty = 0?
                     if (string.IsNullOrEmpty(_EDocGlobVar.MailInfo.Content) == false)
                     {
@@ -915,13 +952,11 @@ namespace eDocGenEngine.Utils
                 throw;
             }
         }
-        private void CreateEMAP()
+        private void CreateEMAP(List<eDocBincodeMapClass> binCodeMap)
         {
             _logger.Info("Generate EMAP");
             try
             {
-                //Update BinCode
-                var binCodeMap = UpdateBinCodeAndRtnMap();
                 //Get Binning Column
 
                 //Get Total Row and Col
@@ -961,6 +996,7 @@ namespace eDocGenEngine.Utils
             try
             {
                 StringBuilder sb = new StringBuilder();
+                    
                 //Get Columns from Spec
                 var tMapParaSpecList = SpecUtil._eDocSpecList.Where(r => r.Parameter_name.Contains("TMAP Parameter")).ToList();
                 if (tMapParaSpecList == null || tMapParaSpecList.Count == 0)
@@ -992,6 +1028,17 @@ namespace eDocGenEngine.Utils
                                          from grr in subGrp.DefaultIfEmpty()
                                          where rw.No > 0 && new string[] { "X", "x" }.Contains(rw.IGx) == false
                                          select new eDocTMapMergeClass { GradingItem = grr, RWItem = rw }).ToList();
+
+                    if (_EDocGlobVar.IsTurboMask)
+                    {
+                        mergeTMapList = (from mt in mergeTMapList
+                                            join grr in dt on
+                                            new { WaferId = mt.RWItem.Wafer_Id, Group = mt.GradingItem[tMapSpecTPCols.FirstOrDefault().ToUpper()] }
+                                            equals new { WaferId = grr["WAFER_ID"], Group = grr[tMapSpecTPCols.FirstOrDefault().ToUpper()] } into subGrp
+                                            from grr in subGrp.DefaultIfEmpty()
+                                            orderby mt.RWItem.No ascending
+                                            select new eDocTMapMergeClass { GradingItem = grr, RWItem = mt.RWItem }).ToList();
+                    }
 
                     foreach (var item in mergeTMapList)
                     {
@@ -1688,7 +1735,11 @@ namespace eDocGenEngine.Utils
                 foreach (var colName in tMapColList.Select(r=> r.ToUpper()))
                 {
                     if (colName == "CHIP_ID")
-                        testValue = string.Format("{0}_{1}", item.RWItem.IGx, item.RWItem.IGy);
+                        testValue = string.Format("{0}_{1}", item.GradingItem["GX"], item.GradingItem["GY"]);
+                    else if (colName == "FAB_WF_X")
+                        testValue = item.GradingItem["GX"];
+                    else if (colName == "FAB_WF_Y")
+                        testValue = item.GradingItem["GY"];
                     else if (colName == "FAB_LOT_ID")
                         testValue = item.RWItem.Wafer_Id.Substring(0, 9);
                     else if (colName == "RW_LOT_ID")
@@ -1699,6 +1750,8 @@ namespace eDocGenEngine.Utils
                     }
                     else if (colName == "EPI_REACTOR")
                         testValue = _EDocGlobVar.EPIReactor;
+                    else if (colName == "BIN") //20221222 For Turbo usage
+                        testValue = item.RWItem.Bin_AOI1;
                     else
                     {
                         //Check from grading
@@ -2059,7 +2112,8 @@ namespace eDocGenEngine.Utils
                 string headerFN = Path.Combine(_EDocGlobVar.EDocResultPath,
                     string.Format("{0}_EMAP_HEADER_{1}.csv", _EDocGlobVar.HeaderInfo.RW_Wafer_Id, now.ToString("yyyyMMdd_HHmmss")));
                 File.WriteAllText(headerFN, sb.ToString(), Encoding.ASCII);
-                if (eMapStatus == "Success")
+                //If in debug mode, will not upload header and tMap file into S3 folder
+                if (eMapStatus == "Success" && Program._isDebug == false)
                 {
                     CopyToS3Folder(headerFN);
                     //Check if exist tMap

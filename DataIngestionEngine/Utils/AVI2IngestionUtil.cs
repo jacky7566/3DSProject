@@ -172,7 +172,8 @@ namespace DataIngestionEngine.Utils
                             _eDocGenParaClass.MailInfo.Subject = subject; //20220913 Jacky added For API usage
                             _eDocGenParaClass.MailInfo.Content = content; //20220913 Jacky added For API usage
                             CallAPI(errorSB.ToString());
-                            _FailedOutputPath = GetEDocConfigValue("Output", "Error"); //2DBC Failed Path
+                            if (string.IsNullOrEmpty(_FailedOutputPath) == true)
+                                _FailedOutputPath = GetEDocConfigValue("Output", "Error"); //Default Error Output Path
                             return false;
                         }
                         if (await ImportToHeaderInfoAsync(headerList))
@@ -566,13 +567,13 @@ namespace DataIngestionEngine.Utils
                     if (CreateConsecutiveReport(sb.ToString(), failedReportPath))
                     {
                         return string.Format(@"<li>The given RWID:{0} consecutive report has succefully been created!<BR>
-                        Please check the detail from folder: {1}. 
+                        Please check the details through folder: {1}. 
                         <BR><li>System have detected the bin code greater than {2} and excludes the bin codes {3}",
                             _eDocGenParaClass.HeaderInfo.RW_Wafer_Id, failedReportPath, greaterCond, excludeCond);
                     }
                     else
                         return string.Format(@"<li>The given RWID:{0} consecutive report has some error during creation!<BR>
-                        Please check the detail from folder: {1}. 
+                        Please check the detail through folder: {1}. 
                         <BR><li>System have detected the bin code greater than {2} and excludes the bin codes {3}",
                             _eDocGenParaClass.HeaderInfo.RW_Wafer_Id, failedReportPath, greaterCond, excludeCond);
                 }
@@ -648,8 +649,11 @@ namespace DataIngestionEngine.Utils
                     _eDocGenParaClass.HeaderInfo.RW_Wafer_Id, DateTime.Now.ToString("yyyyMMddHHmm"));
                 if (Directory.Exists(failedReportPath) == false)
                     Directory.CreateDirectory(failedReportPath);
+                //Copy AVI2 file
+                File.Copy(_inputFilePath, Path.Combine(failedReportPath, new FileInfo(_inputFilePath).Name), true);
+                //Then build Report Path
                 failedReportPath = Path.Combine(failedReportPath, fileName);
-                File.WriteAllText(failedReportPath, content);
+                File.WriteAllText(failedReportPath, content);                
                 if (File.Exists(failedReportPath))
                     isSuccess = true;
             }
@@ -754,14 +758,26 @@ namespace DataIngestionEngine.Utils
                         }
                         else
                         {
-                            sb.AppendFormat("<li>Mask: {0} 2DBC Configuration failed! Config Value: {1}",
+                            sb.AppendFormat("<li>Mask: {0} 2DBC Configuration format failed! Config Value: {1}",
                                 bodyList.FirstOrDefault().Wafer_Id.Substring(0, 5), configList.FirstOrDefault().ConfigValue);
                         }
                     }
                 }
 
                 if (sb.Length > 0)
+                {
                     _logger.Warn(sb.ToString());
+                    var vi2FailedFolder = Path.Combine(GetEDocConfigValue("Output", "OOS"),
+                        "2DBC", DateTime.Now.ToString("yyyyMMdd"));
+                    sb.AppendFormat("<BR>Please check the 2DBC OOS files through folder: {0}", vi2FailedFolder);
+                    //Copy to 2DBC folder
+                    if (Directory.Exists(vi2FailedFolder) == false)
+                    {
+                        Directory.CreateDirectory(vi2FailedFolder);
+                    }
+                    File.Copy(_inputFilePath, Path.Combine(vi2FailedFolder, new FileInfo(_inputFilePath).Name), true);
+                }
+                    
             }
             catch (Exception)
             {

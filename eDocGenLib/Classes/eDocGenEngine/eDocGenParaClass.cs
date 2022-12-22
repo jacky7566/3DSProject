@@ -25,5 +25,6 @@ namespace eDocGenLib.Classes.eDocGenEngine
         public DateTime CreationStartTime { get; set; }
         public string GradingSpecFilePath { get; set; }
         public bool ExcludeGradingResult { get; set; }
+        public bool IsTurboMask { get; set; }
     }
 }
