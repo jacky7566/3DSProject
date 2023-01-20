@@ -1330,7 +1330,7 @@ namespace eDocGenEngine.Utils
                     Directory.Delete(tempFolder);
 
                 //Copy AVI2 
-                File.Copy(_EDocGlobVar.AVI2FilePath, Path.Combine(_EDocGlobVar.EDocResultPath, new FileInfo(_EDocGlobVar.AVI2FilePath).Name));
+                File.Copy(_EDocGlobVar.AVI2FilePath, Path.Combine(_EDocGlobVar.EDocResultPath, new FileInfo(_EDocGlobVar.AVI2FilePath).Name), true);
 
                 //Build ORG_WAFER File
                 var waferList = _EDocGlobVar.RWMapList.Where(r => r.Wafer_Id != null && r.Wafer_Id != "Fiducial").Select(r => r.Wafer_Id).Distinct();
@@ -1486,17 +1486,18 @@ namespace eDocGenEngine.Utils
                 {
                     var groupedBins = item.Value.Select(r => r.AOI_BinCode).ToList();
                     var specialBinList = _EDocGlobVar.RWMapList.Where(r => groupedBins.Contains(r.Bin_AOI2));
-                    if (specialBinList != null && specialBinList.Count() > 0)
+                    //if (specialBinList != null && specialBinList.Count() > 0)
+                    //{
+
+                    //}
+                    specialBinList.ToList().ForEach(r => r.EMap_BinCode = item.Key); //Updated to grouped eMap bincode(ex: bin L)
+                    binCodeList.Add(new eDocBincodeMapClass()
                     {
-                        specialBinList.ToList().ForEach(r => r.EMap_BinCode = item.Key); //Updated to grouped eMap bincode(ex: bin L)
-                        binCodeList.Add(new eDocBincodeMapClass()
-                        {
-                            EMap_BinCode = item.Key,
-                            BinQuality = item.Value.FirstOrDefault().BinQuality,
-                            BinDescription = string.Join(", ", item.Value.OrderBy(r=> r.AOI_BinCode).Select(r=> r.BinDescription).ToList()),
-                            BinCount = specialBinList.Count()
-                        });
-                    }
+                        EMap_BinCode = item.Key,
+                        BinQuality = item.Value.FirstOrDefault().BinQuality,
+                        BinDescription = string.Join(", ", item.Value.OrderBy(r => r.AOI_BinCode).Select(r => r.BinDescription).ToList()),
+                        BinCount = specialBinList.Count()
+                    });
                 }
             }
             catch (Exception)
@@ -1668,8 +1669,6 @@ namespace eDocGenEngine.Utils
             {
                 foreach (var item in binCodeMap)
                 {
-                    if (item.BinCount == 0)
-                        continue;
                     sb.AppendLine("<Bin");
                     sb.AppendLine(string.Format("\tBinCode=\"{0}\"", item.EMap_BinCode));
                     sb.AppendLine(string.Format("\tBinQuality=\"{0}\"", item.BinQuality));

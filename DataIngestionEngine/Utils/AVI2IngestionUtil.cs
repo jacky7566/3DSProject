@@ -14,6 +14,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Transactions;
+using System.Runtime.CompilerServices;
 
 namespace DataIngestionEngine.Utils
 {
@@ -29,6 +30,7 @@ namespace DataIngestionEngine.Utils
         private static IDbConnection _sqlConn;
         public static string _FailedOutputPath;
         private static List<eDocConfigClass> _eDocConfigList;
+        private static string _errorMsgForWaferResume;
         public AVI2IngestionUtil(IConfiguration config, ILogger logger)
         {
             _config = config;
@@ -86,8 +88,9 @@ namespace DataIngestionEngine.Utils
         private static async Task<bool> ExtractTextFileAsync()
         {
             List<Traceability_InfoClass> headerList = new List<Traceability_InfoClass>();
-            List<AVI2_RawDataClass> bodyList = new List<AVI2_RawDataClass>();
-            StringBuilder errorSB = new StringBuilder();
+            List<AVI2_RawDataClass> bodyList = new List<AVI2_RawDataClass>();            
+            StringBuilder errorContent = new StringBuilder();
+            _errorMsgForWaferResume = string.Empty;
 
             try
             {
@@ -147,31 +150,35 @@ namespace DataIngestionEngine.Utils
                     }
 
                     bool isCleaned = await CleanUpOldData(headerList);
+                    bool isSpecialByPass = false;
+                    bool.TryParse(_config["Configurations:SpecialByPass"], out isSpecialByPass);
                     if (isCleaned && headerList != null && headerList.Count() > 0)
                     {
                         //Check Coordinate duplication
-                        errorSB.Append(CheckiGxiGyIsDuplicate(bodyList));
-                        if (errorSB.Length > 0) errorSB.Append("<BR>");
-                        errorSB.Append(CheckoGxoGyIsDuplicate(bodyList));
+                        errorContent.Append(CheckiGxiGyIsDuplicate(bodyList));
+                        if (errorContent.Length > 0) errorContent.Append("<BR>");
+                        errorContent.Append(CheckoGxoGyIsDuplicate(bodyList));
                         //Check 2DBC Control
-                        if (errorSB.Length > 0) errorSB.Append("<BR>");
-                        errorSB.Append(Check2DBCControl(bodyList, new FileInfo(_inputFilePath).Name));
+                        if (errorContent.Length > 0) errorContent.Append("<BR>");
+                        if (isSpecialByPass == false)
+                            errorContent.Append(Check2DBCControl(bodyList, new FileInfo(_inputFilePath).Name));
                         //20221107 Detections of horizontal and vertical lines on AOI2 bin maps
-                        if (errorSB.Length > 0) errorSB.Append("<BR>");
-                        errorSB.Append(CheckAOI2ContBincode(bodyList));
+                        if (errorContent.Length > 0) errorContent.Append("<BR>");
+                        if (isSpecialByPass == false)
+                            errorContent.Append(CheckAOI2ContBincode(bodyList));
 
-                        if (errorSB.Length > 0)
+                        if (errorContent.Length > 0)
                         {
                             MailHelper mail = new MailHelper(_config);
                             var rwId = headerList.FirstOrDefault().RW_Wafer_Id;
                             var subject = string.Format("{0} - RW Wafer Id: {1}", _config["MailSettings:mailTitle"].ToString(), rwId);
-                            var content = string.Format("RW_Wafer_Id: {0} <BR> Error Message:<BR><BR>{1}", rwId, errorSB.ToString()).Replace("\n\r", "<BR>");
+                            var content = string.Format("RW_Wafer_Id: {0} <BR> Error Message:<BR><BR>{1}", rwId, errorContent.ToString()).Replace("\n\r", "<BR>");
                             var receivers = _config["MailSettings:receiveMails"].ToString().Split(",").ToList();
                             mail.SendMail(string.Empty, receivers, subject, content, true);
                             _eDocGenParaClass.MailInfo = new eDocAlertClass();
                             _eDocGenParaClass.MailInfo.Subject = subject; //20220913 Jacky added For API usage
                             _eDocGenParaClass.MailInfo.Content = content; //20220913 Jacky added For API usage
-                            CallAPI(errorSB.ToString());
+                            CallAPI(_errorMsgForWaferResume);
                             if (string.IsNullOrEmpty(_FailedOutputPath) == true)
                                 _FailedOutputPath = GetEDocConfigValue("Output", "Error"); //Default Error Output Path
                             return false;
@@ -566,6 +573,7 @@ namespace DataIngestionEngine.Utils
 
                     if (CreateConsecutiveReport(sb.ToString(), failedReportPath))
                     {
+                        _errorMsgForWaferResume = string.Format("AOI2 Consecutive(>5Dies) OOS!");
                         return string.Format(@"<li>The given RWID:{0} consecutive report has succefully been created!<BR>
                         Please check the details through folder: {1}. 
                         <BR><li>System have detected the bin code greater than {2} and excludes the bin codes {3}",
@@ -684,6 +692,8 @@ namespace DataIngestionEngine.Utils
                     }
                     sb.AppendLine();
                     _logger.Warn(sb.ToString());
+                    _errorMsgForWaferResume = string.Format("Wafer:{0} has {1} iGX and iGy duplicate(s)!",
+                        bodyList.FirstOrDefault().Wafer_Id, iXYDupRes.Count());
                 }
             }
             catch (Exception)
@@ -715,6 +725,8 @@ namespace DataIngestionEngine.Utils
                     }
                     sb.AppendLine();
                     _logger.Warn(sb.ToString());
+                    _errorMsgForWaferResume = string.Format("RW_Wafer_Id:{0} has {1} iGX and iGy duplicate(s)!",
+                        bodyList.FirstOrDefault().RW_Wafer_Id, iXYDupRes.Count());
                 }
             }
             catch (Exception)
@@ -753,13 +765,15 @@ namespace DataIngestionEngine.Utils
                             double.TryParse(percentage, out ctrlPer);
                             if (curPer > ctrlPer)
                             {
-                                sb.AppendFormat("<li>2DBC OOS. Checking bincode:{0}, spec: {1}%, avi2:{2}% ({3}/{4}) ", configs[0], ctrlPer, curPer, avi2CtrlBins, avi2Bins);
+                                _errorMsgForWaferResume = string.Format("2DBC OOS. Checking bincode:{0}, spec: {1}%, avi2:{2}% ({3}/{4}) ", configs[0], ctrlPer, curPer, avi2CtrlBins, avi2Bins);
+                                sb.AppendFormat("<li>{0} ", _errorMsgForWaferResume);                                
                             }
                         }
                         else
                         {
-                            sb.AppendFormat("<li>Mask: {0} 2DBC Configuration format failed! Config Value: {1}",
+                            _errorMsgForWaferResume = string.Format("<li>Mask: {0} 2DBC Configuration format failed! Config Value: {1}",
                                 bodyList.FirstOrDefault().Wafer_Id.Substring(0, 5), configList.FirstOrDefault().ConfigValue);
+                            sb.AppendFormat("<li>{0}", _errorMsgForWaferResume);
                         }
                     }
                 }

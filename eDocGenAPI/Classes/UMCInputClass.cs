@@ -9,7 +9,7 @@ namespace eDocGenAPI.Classes
     public class UMCInputClass
     {
         public string FileName { get; set; }
-        public byte[] FormFile { get; set; }
+        public IFormFile FormFile { get; set; }
         public string Product { get; set; }
         public string ProductType { get; set; }
         public int XShift { get; set; }

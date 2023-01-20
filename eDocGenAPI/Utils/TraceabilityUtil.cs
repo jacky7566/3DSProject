@@ -37,7 +37,7 @@ namespace eDocGenAPI.Utils
             bool b_START = false;
             try
             {
-                using (var sr = new StreamReader(new MemoryStream(inputUMC.FormFile)))
+                using (var sr = new StreamReader(inputUMC.FormFile.OpenReadStream()))
                 {
                     string line = string.Empty;
                     do

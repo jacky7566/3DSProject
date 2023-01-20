@@ -14,6 +14,8 @@ using System.Data;
 using System.Data.SqlClient;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Text;
 using System.Threading.Tasks;
 
 namespace eDocGenAPI.Controllers
@@ -37,13 +39,14 @@ namespace eDocGenAPI.Controllers
         {
             try
             {
+                var eDocDBSchemaName = _config["Configurations:eDocDBSchema"].ToString();
                 var sql = string.Format(@"Select sp.spec_id, gm.mask, sp.spec_filename, sp.spec_version,
                   es.Id, es.UMCFileName, es.EMapVersion 
                   from [centralize_prod].[dbo].tbl_group_mask_map gm
                   inner join [centralize_prod].[dbo].tbl_spec sp on gm.mask = SUBSTRING(sp.spec_filename, 1, 5)
-                  left join [eDoc_Prod].[dbo].TBL_eDoc_Spec es on gm.mask = es.Mask
-                  where sp.status_id = 2 and gm.group_id = '{0}'
-                  order by spec_filename desc ", groupName);
+                  left join [{0}].[dbo].TBL_eDoc_Spec es on gm.mask = es.Mask
+                  where sp.status_id = 2 and gm.group_id = '{1}'
+                  order by spec_filename desc ", eDocDBSchemaName, groupName);
 
                 var res = this._sqlConn.Query<GradingSpecClass>(sql);
                 var json = JsonConvert.SerializeObject(res);
@@ -64,30 +67,38 @@ namespace eDocGenAPI.Controllers
         /// <returns></returns>
         [HttpPost]
         [Route("ProcessAndUploadUMCFile")]
-        public async Task<ActionResult> ProcessAndUploadUMCFileAsync([FromBody] UMCInputClass inputUMC)
+        public async Task<IActionResult> ProcessAndUploadUMCFileAsync([FromForm] UMCInputClass inputUMC)
         {
             var rtnMsg = string.Empty;
             try
             {
                 TraceabilityUtil traceabilityUtil = new TraceabilityUtil(this._sqlConn, this._logger);
                 var folder = _config["Folder:UMC_File"].ToString();
+                EDocSpecClass eDocSpec = new EDocSpecClass();
+                bool isSetHeader = false;
 
                 if (inputUMC.FormFile != null && inputUMC.FormFile.Length > 0)
                 {
                     //Setup eDoc Spec Info
                     eDocGenUtil util = new eDocGenUtil(this._sqlConn, this._logger);
-                    EDocSpecClass eDocSpec = new EDocSpecClass()
+
+                    using (var ms = new MemoryStream())
                     {
-                        Id = Guid.Parse(inputUMC.Id),
-                        UMCFile = inputUMC.FormFile,
-                        UMCFileName = inputUMC.FileName,
-                        CreatedBy = inputUMC.CreatedBy,
-                        Mask = inputUMC.Product,
-                        ProductType = inputUMC.ProductType,
-                        EMapVersion = inputUMC.EMapVersion,
-                        Status = 1
-                    };
-                    var isSetHeader = util.SetEDocSpecInfo(ref eDocSpec, false);
+                        inputUMC.FormFile.CopyTo(ms);
+                        eDocSpec = new EDocSpecClass()
+                        {
+                            Id = Guid.Parse(inputUMC.Id),
+                            UMCFile = ms.ToArray(),
+                            UMCFileName = inputUMC.FormFile.FileName,
+                            CreatedBy = inputUMC.CreatedBy,
+                            Mask = inputUMC.Product,
+                            ProductType = inputUMC.ProductType,
+                            EMapVersion = inputUMC.EMapVersion,
+                            Status = 1
+                        };
+                        isSetHeader = util.SetEDocSpecInfo(ref eDocSpec, false);
+                    }
+
 
                     if (isSetHeader)
                     {
@@ -97,29 +108,29 @@ namespace eDocGenAPI.Controllers
                         if (res.Count() > 0)
                         {
                             await traceabilityUtil.BulkInsertUMCData(res);
-                            rtnMsg = string.Format("InsertUMCData Succeed!", inputUMC.FileName);
+                            rtnMsg = string.Format("Uploaded UMC File successfully! File Name: {0}", inputUMC.FormFile.FileName);
                         }
                         else
                         {
-                            rtnMsg = string.Format("ProcessUMCFile fail! File name: {0}", inputUMC.FileName);
+                            rtnMsg = string.Format("Process UMC File failed! File Name: {0}", inputUMC.FormFile.FileName);
                         }
                     }
                     else
                     {
-                        rtnMsg = string.Format("Insert/Update eDoc Spec Header fail! File name: {0}", inputUMC.FileName);
+                        rtnMsg = string.Format("Insert or Update eDoc Spec Header failed. File Name: {0}", inputUMC.FormFile.FileName);
                     }
                 }
                 else
                 {
-                    rtnMsg = string.Format("Input file can not be empty! File name: {0}", inputUMC.FileName);
+                    rtnMsg = string.Format("Input file can not be empty! File Name: {0}", inputUMC.FormFile.FileName);
                 }
             }
             catch (Exception ex)
             {
-                return StatusCode(StatusCodes.Status303SeeOther, ex.Message);
+                return NotFound(new { ex.Message });
             }
 
-            return StatusCode(StatusCodes.Status200OK, rtnMsg);
+            return Ok(new { rtnMsg });
         }
         [HttpGet]
         [Route("DownloadUMCFile")]
@@ -182,9 +193,9 @@ namespace eDocGenAPI.Controllers
                 eDocGenUtil util = new eDocGenUtil(this._sqlConn, this._logger);
                 var res = util.SetEDocSpecInfo(ref eDocSpec, true);
                 if (res)
-                    rtnMsg = "Insert/Update EDocSpecInfo Succeed!";
+                    rtnMsg = "Insert or Update EDocSpecInfo has Completed";
                 else
-                    rtnMsg = "Insert/Update EDocSpecInfo Failed!";
+                    rtnMsg = "Insert or Update EDocSpecInfo has Failed";
             }
             catch (Exception)
             {
